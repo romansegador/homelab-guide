@@ -1,0 +1,36 @@
+---
+title: Homelab Guide
+description: From zero to production on your own server, a step-by-step guide to a small, GitOps-driven homelab.
+template: splash
+hero:
+  tagline: From an empty machine to production apps with HTTPS, GitOps, managed secrets and backups. Every step was built for real before it was written down.
+  actions:
+    - text: Start here
+      link: /start-here/introduction/
+      icon: right-arrow
+    - text: See the roadmap
+      link: /start-here/roadmap/
+      icon: list-format
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+<CardGrid stagger>
+	<Card title="One machine, done properly" icon="laptop">
+		A single server or VM, sized for real use. No cluster theatre: redundancy comes from backups
+		you can restore, not from replicas on the same disk.
+	</Card>
+	<Card title="Everything from git" icon="seti:git">
+		Your apps and platform are declared in a repository. ArgoCD makes the server match it, so
+		what runs is always what's committed.
+	</Card>
+	<Card title="Secrets off the box" icon="approve-check">
+		Secrets live in a secrets manager and are synced into the cluster. Lose the machine, keep
+		the secrets.
+	</Card>
+	<Card title="Real HTTPS, private hostnames" icon="seti:lock">
+		Trusted certificates for services that are never exposed to the internet, using DNS
+		validation.
+	</Card>
+</CardGrid>
