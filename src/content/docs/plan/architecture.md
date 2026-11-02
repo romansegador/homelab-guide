@@ -3,6 +3,11 @@ title: Architecture decisions
 description: The big choices behind the platform, and the reasoning, so you can change them knowingly.
 ---
 
+:::tip[Do it with an AI agent]
+This chapter has an agent skill, `plan`, that helps you make and record these decisions. See
+[Use with an AI agent](/start-here/agents/).
+:::
+
 Before installing anything, decide what you're building. These are the decisions this guide
 makes, and why. If your situation differs, the reasoning tells you which ones to revisit.
 

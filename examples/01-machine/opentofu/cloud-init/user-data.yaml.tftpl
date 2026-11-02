@@ -1,0 +1,55 @@
+#cloud-config
+# Runs once, on the VM's first boot. Proxmox applies the network settings separately.
+
+hostname: ${hostname}
+timezone: ${timezone}
+
+# --- Access: one admin user, SSH key only -------------------------------------------
+users:
+  - name: ${admin_user}
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: true            # no password at all: key login only
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+disable_root: true
+ssh_pwauth: false
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/10-hardening.conf
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+  # Install security updates automatically, every day.
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
+# --- Packages ---------------------------------------------------------------------------
+package_update: true
+package_upgrade: true
+packages:
+  - qemu-guest-agent             # lets Proxmox see the IP and shut the VM down cleanly
+  - unattended-upgrades
+
+# --- Data disk: format /dev/sdb once, label it "data", mount it at /data ------------------
+disk_setup:
+  /dev/sdb:
+    table_type: gpt
+    layout: true
+    overwrite: false             # never wipe a disk that already has a partition table
+fs_setup:
+  - label: data
+    filesystem: ext4
+    device: /dev/sdb
+    partition: auto
+    overwrite: false             # never reformat an existing filesystem
+mounts:
+  - [ "LABEL=data", "/data", "ext4", "defaults,nofail", "0", "2" ]
+
+runcmd:
+  - systemctl enable --now qemu-guest-agent
+  - systemctl restart ssh

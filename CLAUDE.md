@@ -17,6 +17,20 @@ chapter has been executed for real before it's published.
   Don't bake a tool name into the site or repo name, or into chapter slugs that are about a concept.
 - **PRs only.** Never push to `main`.
 
+## How a chapter is made
+
+1. **Before writing**, ask Roman how to approach it: options and a recommendation (for example the
+   web UI vs OpenTofu for the VM). Several options can become tabs (`<Tabs syncKey=…>`).
+2. Write the page(s) in **English and every existing locale**, the chapter's **agent skill**
+   (`skills/<concept>/SKILL.md`) and any **example code** (`examples/NN-<chapter>/`, validated:
+   `tofu validate`, `kubectl --dry-run`, etc.).
+3. Roman reads it at http://localhost:4321 (`npm run dev`), follows it on the real machine and gives
+   feedback. Refine, and only then mark it ✅ on the roadmap.
+
+Skills: named after the concept (`plan`, `machine`, `cluster`…), not the tool. They must tell the
+agent to never handle secret values and to get explicit approval before creating, changing or deleting
+infrastructure. Keep the table on `start-here/agents` and the plugin in sync (`claude plugin validate .`).
+
 ## Languages
 
 - **English is the source of truth** and lives at the root of `src/content/docs/`.

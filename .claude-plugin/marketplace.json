@@ -1,0 +1,12 @@
+{
+  "name": "homelab-guide",
+  "description": "Skills for following the Homelab Guide with an AI agent.",
+  "owner": { "name": "Homelab Guide contributors" },
+  "plugins": [
+    {
+      "name": "homelab-guide",
+      "source": "./",
+      "description": "One skill per chapter of the Homelab Guide: what to ask you, the steps, and how to verify each one."
+    }
+  ]
+}

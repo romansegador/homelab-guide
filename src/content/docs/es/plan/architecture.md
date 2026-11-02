@@ -8,6 +8,11 @@ Esta página es una traducción asistida por IA del original en inglés, que es 
 ves un error, abre un issue o un PR.
 :::
 
+:::tip[Hazlo con un agente de IA]
+Este capítulo tiene una skill para agentes, `plan`, que te ayuda a tomar y anotar estas
+decisiones. Consulta [Usar con un agente de IA](/es/start-here/agents/).
+:::
+
 Antes de instalar nada, decide qué vas a construir. Estas son las decisiones que toma esta guía
 y sus motivos. Si tu situación es distinta, el razonamiento te dice cuáles revisar.
 
