@@ -1,0 +1,24 @@
+# Copy to backend.hcl and fill in, then: tofu init -backend-config=backend.hcl
+# These values aren't secret (the bucket keys are exported in your shell), but they're yours:
+# keep backend.hcl in your private repo, not in a public one.
+
+# ---- Cloudflare R2 ---------------------------------------------------------------------
+bucket = "homelab-tofu-state"
+region = "auto"
+endpoints = {
+  s3 = "https://<YOUR_CLOUDFLARE_ACCOUNT_ID>.r2.cloudflarestorage.com"
+}
+# R2 speaks the S3 API but isn't AWS: skip the AWS-only checks.
+use_path_style              = true
+skip_credentials_validation = true
+skip_region_validation      = true
+skip_requesting_account_id  = true
+skip_metadata_api_check     = true
+skip_s3_checksum            = true
+
+# ---- Amazon S3 instead? Replace everything above with: ----------------------------------
+# bucket = "<YOUR_BUCKET>"
+# region = "<YOUR_AWS_REGION>"
+#
+# ---- Another S3-compatible service (Backblaze B2, MinIO, Garage…)? ----------------------
+# Keep the R2 block and change `endpoints.s3` and `region` to what your provider documents.

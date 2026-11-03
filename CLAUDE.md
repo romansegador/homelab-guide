@@ -24,7 +24,10 @@ chapter has been executed for real before it's published.
 2. Write the page(s) in **English and every existing locale**, the chapter's **agent skill**
    (`skills/<concept>/SKILL.md`) and any **example code** (`examples/NN-<chapter>/`, validated:
    `tofu validate`, `kubectl --dry-run`, etc.).
-3. Roman reads it at http://localhost:4321 (`npm run dev`), follows it on the real machine and gives
+3. **Record the reasoning** behind every tool or approach choice in the FAQ
+   (`start-here/faq.md`, under the chapter's heading): why this option, which alternatives were
+   considered and why not, and when a reader might pick differently.
+4. Roman reads it at http://localhost:4321 (`npm run dev`), follows it on the real machine and gives
    feedback. Refine, and only then mark it ✅ on the roadmap.
 
 Skills: named after the concept (`plan`, `machine`, `cluster`…), not the tool. They must tell the

@@ -1,6 +1,6 @@
 ---
 name: machine
-description: Homelab Guide chapter 1. Use when creating the homelab's machine, typically a Proxmox VM from an Ubuntu cloud image with cloud-init, either through the Proxmox web UI or as code with OpenTofu and the bpg/proxmox provider, with a separate data disk mounted at /data.
+description: Homelab Guide chapter 1. Use when creating the homelab's machine, typically a Proxmox VM from an Ubuntu cloud image with cloud-init, either through the Proxmox web UI or as code with OpenTofu and the bpg/proxmox provider, with a separate data disk mounted at /data. Also covers OpenTofu setup: a limited Proxmox API token, a restricted SSH user for snippet uploads, and encrypted remote state in Cloudflare R2 or any S3 bucket.
 ---
 
 # Chapter 1: The machine
@@ -11,19 +11,27 @@ chapter 0 decisions:
 - an OS disk plus a separate data disk mounted at `/data`,
 - a static IP, SSH key login only, the guest agent, unattended security updates.
 
-Guide page: `/machine/create/` (or `src/content/docs/machine/create.mdx` in the guide repo).
+Guide pages: `/machine/opentofu-setup/` (OpenTofu path only) and `/machine/create/` (or
+`src/content/docs/machine/*.mdx` in the guide repo). Reasoning behind the choices: `/start-here/faq/`.
 Example code: `examples/01-machine/opentofu/` in the guide repo.
 
 ## Ground rules
 
-- **Never ask for or handle secret values.** The Proxmox API token is created and exported by the
-  user (`export PROXMOX_VE_API_TOKEN=…` in their own shell). Never print it, write it to a file, or
-  put it in `terraform.tfvars`.
+- **Never ask for, generate or handle secret values.** Four secrets exist on the OpenTofu path: the
+  Proxmox API token, the bucket's access key id and secret, and the state passphrase. The user
+  creates them, stores them in their password manager, and exports them in their own shell
+  (`PROXMOX_VE_API_TOKEN`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `TF_VAR_state_passphrase`).
+  Never print them, write them to a file, or put them in `terraform.tfvars` or `backend.hcl`.
+- **Never give the provider root SSH** to Proxmox. It uses the restricted `tofu` user, whose sudo
+  rules allow only `pvesm apiinfo` and `tee` into the snippets folder. Never widen them to all of
+  `pvesm`, `qm`, or a `tee` wildcard.
 - **`tofu apply` and anything that creates, changes or deletes a VM needs the user's explicit OK**,
   after they've seen the `tofu plan` output. Same for UI steps that delete disks.
 - Before changing Proxmox storage settings (`pvesm set … --content`), show the current value and
   make sure the new list **keeps every existing content type**.
-- `terraform.tfvars` and `*.tfstate*` stay out of git (the example's `.gitignore` handles it).
+- `terraform.tfvars` and `backend.hcl` hold no secrets and belong in the user's **private** repo.
+  Local state and plan files stay out of git (the example's `.gitignore` handles it).
+- Warn the user that losing the state passphrase makes the state unreadable.
 
 ## Ask first
 
@@ -38,18 +46,27 @@ Example code: `examples/01-machine/opentofu/` in the guide repo.
 
 ## Path A: OpenTofu
 
-1. Check that `tofu version` is 1.8 or newer. Install it if missing (https://opentofu.org/docs/intro/install/).
-2. On Proxmox (as root, by the user or with their OK):
-   - enable the `snippets` and `import` content types on the image storage, keeping the existing types;
-   - create user `tofu@pve`, a role with the privileges listed on the guide page, and an API token
-     (`pveum user token add tofu@pve provider --privsep 0`).
+Setup (once, guide page `/machine/opentofu-setup/`):
+1. Check that `tofu version` is 1.10 or newer. Install it if missing (https://opentofu.org/docs/intro/install/).
+   Terraform also works with the same files, minus state encryption.
+2. On Proxmox (as root, by the user or with their OK): create user `tofu@pve`, the `TofuProvisioner`
+   role with the privileges listed on the guide page, and an API token
+   (`pveum user token add tofu@pve provider --privsep 0`). The user stores the token secret.
+3. Restricted SSH user: install `sudo`, create Linux user `tofu` with the user's public key, and
+   write `/etc/sudoers.d/tofu` exactly as on the guide page. Run `visudo -c`. Verify from the laptop:
+   `ssh tofu@<proxmox> sudo pvesm apiinfo` prints `APIVER` with no password prompt.
+4. State bucket: Cloudflare R2 (or any S3-compatible storage, but not one hosted on the homelab), with
+   an access key scoped to that bucket only. The user creates it and keeps the keys.
+5. State passphrase (16+ characters): the user generates it in their password manager.
 
-   The user stores the token secret themselves.
-3. Copy `examples/01-machine/opentofu/` to the user's private infra repo. Fill
-   `terraform.tfvars` from `terraform.tfvars.example`.
-4. SSH agent: the provider uploads the cloud-init snippet over SSH as `root` (or the configured
-   user) to the Proxmox host. Check with `ssh-add -l` and `ssh root@<proxmox> true`.
-5. `tofu init`, then `tofu plan`. Walk the user through the plan. Apply only after their OK.
+Create the VM (guide page `/machine/create/`, OpenTofu tab):
+1. Enable the `snippets` and `import` content types on the image storage, keeping the existing types.
+2. Copy `examples/01-machine/opentofu/` to the user's private infra repo. Fill `terraform.tfvars`
+   and `backend.hcl` from their `.example` files.
+3. The user exports the four secrets in their shell. Then run `tofu init -backend-config=backend.hcl`
+   and `tofu plan`. Walk the user through the plan (expect 3 to add). Apply only after their OK.
+4. Confirm the bucket holds `machine/terraform.tfstate`, and that it's encrypted (an
+   `encrypted_data` field, no readable resources).
 
 ## Path B: Proxmox web UI
 

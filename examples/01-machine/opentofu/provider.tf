@@ -5,7 +5,8 @@ provider "proxmox" {
   insecure = var.proxmox_insecure_tls
 
   # SSH is only used to upload the cloud-init snippet (the Proxmox API can't upload snippets).
-  # It uses your running ssh-agent; check with `ssh-add -l` and `ssh root@<proxmox-host> true`.
+  # It logs in as a restricted user that can only write snippet files (see the guide), using your
+  # running ssh-agent. Check with `ssh-add -l` and `ssh tofu@<proxmox-host> sudo pvesm apiinfo`.
   ssh {
     agent    = true
     username = var.proxmox_ssh_user

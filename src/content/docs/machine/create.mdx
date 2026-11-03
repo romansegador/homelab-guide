@@ -41,7 +41,8 @@ exist (this VM, with these disks, on this network), and OpenTofu makes reality m
 - `tofu apply` does it, after you confirm.
 
 It's the open-source fork of Terraform, maintained by the Linux Foundation, and it uses the same
-language. A **provider** teaches it to talk to a specific platform. Here that's `bpg/proxmox`.
+language: the examples work with Terraform too ([why OpenTofu](/start-here/faq/#why-opentofu-and-not-terraform)).
+A **provider** teaches it to talk to a specific platform. Here that's `bpg/proxmox`.
 
 **Why bother, for one VM?** Because the VM definition lives in git next to everything else. You
 can review a change before it happens, and rebuilding the machine is a single command. It's the
@@ -63,12 +64,8 @@ same idea as the GitOps chapter, applied to the machine itself.
 
 <Steps>
 
-1. **Install OpenTofu** on your laptop ([install guide](https://opentofu.org/docs/intro/install/)), then check it:
-
-   ```sh
-   $ tofu version
-   OpenTofu v1.12.x
-   ```
+1. **Do [Set up OpenTofu](/machine/opentofu-setup/) first.** You need the API token, the
+   restricted SSH user, the state bucket and the passphrase from that page.
 
 2. **Let Proxmox store images and snippets.** On the Proxmox host, look at what the `local` storage
    already holds, then add `import` and `snippets` **while keeping every existing type**:
@@ -82,66 +79,45 @@ same idea as the GitOps chapter, applied to the machine itself.
    <Aside type="caution">`--content` **replaces** the list. If you leave out a type that was there,
    Proxmox stops showing that content.</Aside>
 
-3. **Create a Proxmox user and API token for OpenTofu.** It gets only the privileges it needs, not
-   root:
-
-   ```sh
-   server$ pveum user add tofu@pve --comment "OpenTofu provisioning"
-   server$ pveum role add TofuProvisioner -privs "Datastore.Allocate Datastore.AllocateSpace \
-     Datastore.AllocateTemplate Datastore.Audit Pool.Audit SDN.Audit SDN.Use Sys.Audit Sys.Console \
-     Sys.Modify VM.Allocate VM.Audit VM.Clone VM.Config.CDROM VM.Config.CPU VM.Config.Cloudinit \
-     VM.Config.Disk VM.Config.HWType VM.Config.Memory VM.Config.Network VM.Config.Options \
-     VM.Console VM.GuestAgent.Audit VM.Migrate VM.PowerMgmt"
-   server$ pveum aclmod / -user tofu@pve -role TofuProvisioner
-   server$ pveum user token add tofu@pve provider --privsep 0
-   ```
-
-   The last command prints the token secret **once**. Store it in your password manager now. You'll
-   export it as `PROXMOX_VE_API_TOKEN` in the form `tofu@pve!provider=<secret>`.
-
-   <Aside>If a later `tofu apply` fails with `Permission check failed (…, <PRIVILEGE>)`, add that
-   privilege with `pveum role modify TofuProvisioner -append 1 -privs <PRIVILEGE>`. Privilege names
-   changed in Proxmox 9.</Aside>
-
-4. **Copy the example** into your **private** infrastructure repository:
+3. **Copy the example** into your **private** infrastructure repository:
    [`examples/01-machine/opentofu`](https://github.com/romansegador/homelab-guide/tree/main/examples/01-machine/opentofu).
 
    | File | What it holds |
    |---|---|
    | `versions.tf`, `provider.tf` | OpenTofu and provider versions, and how to reach Proxmox |
+   | `backend.tf`, `backend.hcl.example` | Where the state is stored (your bucket) |
+   | `encryption.tf` | How the state is encrypted before it's uploaded |
    | `variables.tf` | Every setting, with a description and a default |
    | `main.tf` | The image download, the cloud-init file and the VM |
    | `cloud-init/user-data.yaml.tftpl` | What the VM does on first boot |
    | `terraform.tfvars.example` | Your values go in a copy of this file |
 
-5. **Fill in your values.** Copy the example file, then edit it:
+4. **Fill in your values.** Copy the two example files, then edit them:
 
    ```sh
-   $ cp terraform.tfvars.example terraform.tfvars
+   $ cp terraform.tfvars.example terraform.tfvars   # hostnames, IPs, sizes
+   $ cp backend.hcl.example backend.hcl             # bucket name and endpoint
    ```
 
-   `terraform.tfvars` is git-ignored. It holds hostnames and IPs, **never** the token.
+   Neither file holds a secret, so commit both to your **private** repository. That way a rebuild
+   doesn't depend on your laptop. Secrets stay in your shell (next step).
 
-6. **Make sure SSH to Proxmox works.** The provider uploads the cloud-init file over SSH (the
-   Proxmox API can't upload snippets). It uses your SSH agent:
-
-   ```sh
-   $ ssh-add -l                       # your key is listed
-   $ ssh root@proxmox.home.example.com true && echo ok
-   ```
-
-7. **Plan.** Export the token in this shell only, then ask OpenTofu what it would do:
+5. **Plan.** Export the four secrets in this shell only (see
+   [step 6 of the setup](/machine/opentofu-setup/)), then ask OpenTofu what it would do:
 
    ```sh
-   $ export PROXMOX_VE_API_TOKEN='tofu@pve!provider=<secret>'
-   $ tofu init
+   $ export PROXMOX_VE_API_TOKEN='tofu@pve!provider=<token secret>'
+   $ export AWS_ACCESS_KEY_ID='<bucket access key id>'
+   $ export AWS_SECRET_ACCESS_KEY='<bucket secret access key>'
+   $ export TF_VAR_state_passphrase='<state passphrase>'
+   $ tofu init -backend-config=backend.hcl
    $ tofu plan
    ```
 
    Read the plan. It should list **3 to add, 0 to change, 0 to destroy**: the image download, the
    user-data file and the VM.
 
-8. **Apply.**
+6. **Apply.**
 
    ```sh
    $ tofu apply
@@ -150,12 +126,15 @@ same idea as the GitOps chapter, applied to the machine itself.
    Type `yes` when asked. The image download takes a minute. The VM then boots and cloud-init runs,
    which takes another 2–4 minutes while it installs updates.
 
+7. **Check the state landed in the bucket, encrypted.** It's the object
+   `machine/terraform.tfstate`. Its contents are an `encrypted_data` blob, not readable JSON.
+
 </Steps>
 
 <Aside type="note" title="Where's the state?">
-OpenTofu records what it created in `terraform.tfstate`, which is git-ignored. Keep it: it's how
-OpenTofu knows the VM is "its" VM. Moving the state to a remote backend is covered in the Day 2
-chapter.
+In your bucket, encrypted with your passphrase. There's no `terraform.tfstate` on your laptop. Any
+machine with the repository, the four secrets and network access to Proxmox can run `tofu plan`.
+Why it's done this way: see the [FAQ](/start-here/faq/#where-is-the-opentofu-state-and-why-remote-and-encrypted).
 </Aside>
 
 </TabItem>
@@ -263,7 +242,8 @@ $ ssh admin@192.168.10.50 findmnt /data
 
 - [ ] All the checks pass, including after the reboot.
 - [ ] Take a first **backup or snapshot** of the VM in Proxmox. It's your "clean machine" restore point.
-- [ ] If you used OpenTofu, commit everything **except** `terraform.tfvars` and the state files
-      (the `.gitignore` takes care of that).
+- [ ] If you used OpenTofu, commit the folder to your private repository, including
+      `terraform.tfvars` and `backend.hcl`, but never a secret. The `.gitignore` keeps out
+      `.terraform/` and any local state or plan files.
 
 Next: the cluster.

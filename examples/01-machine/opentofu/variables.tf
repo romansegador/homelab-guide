@@ -11,9 +11,9 @@ variable "proxmox_insecure_tls" {
 }
 
 variable "proxmox_ssh_user" {
-  description = "SSH user on the Proxmox host, used only to upload the cloud-init snippet"
+  description = "Restricted SSH user on the Proxmox host, used only to upload the cloud-init snippet"
   type        = string
-  default     = "root"
+  default     = "tofu"
 }
 
 variable "proxmox_node" {
@@ -112,4 +112,11 @@ variable "ssh_public_key_file" {
 variable "timezone" {
   type    = string
   default = "Etc/UTC"
+}
+
+# ---- State encryption -----------------------------------------------------------------
+variable "state_passphrase" {
+  description = "Encrypts the OpenTofu state. Export TF_VAR_state_passphrase; never put it in a file"
+  type        = string
+  sensitive   = true
 }

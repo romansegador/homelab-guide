@@ -1,0 +1,154 @@
+---
+title: Preparar OpenTofu
+description: Todo lo que OpenTofu necesita antes de crear la máquina. Un token de API de Proxmox con privilegios limitados, un usuario SSH restringido y un estado remoto cifrado.
+---
+
+import { Tabs, TabItem, Steps, Aside } from '@astrojs/starlight/components';
+
+:::note[Traducción asistida por IA]
+Esta página es una traducción asistida por IA del original en inglés, que es la referencia. Si
+ves un error, abre un issue o un PR.
+:::
+
+**Solo para el camino «como código».** Si vas a crear la VM desde la interfaz web de Proxmox, salta a
+[Crear la máquina](/es/machine/create/).
+
+OpenTofu se ejecuta en **tu portátil** (o, más adelante, en un trabajo de CI) y llega a Proxmox desde
+ahí. Antes del primer `tofu apply` necesita cuatro cosas, y ninguna es acceso de root:
+
+| Qué | Para qué | Dónde se guarda |
+|---|---|---|
+| Un **token de API** de Proxmox con privilegios limitados | Crea y modifica la VM a través de la API de Proxmox | Tu gestor de contraseñas |
+| Un **usuario SSH** restringido en Proxmox | Sube el fichero de cloud-init (lo único que la API no puede hacer) | Tu clave SSH, en tu agente SSH |
+| Un **bucket** para el estado y sus claves de acceso | Guarda el registro de OpenTofu de lo que ha creado en un sitio más seguro que tu portátil | Las claves, en tu gestor de contraseñas |
+| Una **frase de paso del estado** | Cifra el estado antes de que salga de tu portátil | Tu gestor de contraseñas |
+
+El razonamiento detrás de cada elección está en las [preguntas frecuentes](/es/start-here/faq/#capítulo-1--la-máquina).
+
+<Aside type="tip" title="Hazlo con un agente de IA">
+La skill `machine` cubre también esta página. Consulta [Usar con un agente de IA](/es/start-here/agents/).
+El agente nunca ve tu token, tus claves ni tu frase de paso: los creas y exportas tú.
+</Aside>
+
+<Steps>
+
+1. **Instala OpenTofu** en tu portátil ([guía de instalación](https://opentofu.org/docs/intro/install/)) y compruébalo:
+
+   ```sh
+   $ tofu version
+   OpenTofu v1.12.x
+   ```
+
+   <Aside>¿Prefieres **Terraform**? Los ejemplos funcionan con él sin cambios: escribe `terraform`
+   donde la guía escribe `tofu`. La única excepción es el cifrado del estado del paso 5. Terraform
+   no lo tiene, así que dependerías del cifrado propio del bucket.</Aside>
+
+2. **Crea un usuario y un token de API de Proxmox.** Solo recibe los privilegios que necesita para
+   gestionar VMs, no los de root:
+
+   ```sh
+   server$ pveum user add tofu@pve --comment "OpenTofu provisioning"
+   server$ pveum role add TofuProvisioner -privs "Datastore.Allocate Datastore.AllocateSpace \
+     Datastore.AllocateTemplate Datastore.Audit Pool.Audit SDN.Audit SDN.Use Sys.Audit Sys.Console \
+     Sys.Modify VM.Allocate VM.Audit VM.Clone VM.Config.CDROM VM.Config.CPU VM.Config.Cloudinit \
+     VM.Config.Disk VM.Config.HWType VM.Config.Memory VM.Config.Network VM.Config.Options \
+     VM.Console VM.GuestAgent.Audit VM.Migrate VM.PowerMgmt"
+   server$ pveum aclmod / -user tofu@pve -role TofuProvisioner
+   server$ pveum user token add tofu@pve provider --privsep 0
+   ```
+
+   El último comando muestra el secreto del token **una sola vez**. Guárdalo ya en tu gestor de
+   contraseñas.
+
+   <Aside>Si más adelante `tofu apply` falla con `Permission check failed (…, <PRIVILEGIO>)`, añade
+   ese privilegio con `pveum role modify TofuProvisioner -append 1 -privs <PRIVILEGIO>`. Los nombres
+   de los privilegios cambiaron en Proxmox 9.</Aside>
+
+3. **Crea un usuario SSH restringido en Proxmox.** El proveedor sube el fichero de cloud-init por
+   SSH, porque la API de Proxmox no permite subir «snippets». Este usuario de Linux puede hacer
+   **solo** eso: puede ejecutar dos comandos exactos como root, y nada más. (No tiene nada que ver
+   con el usuario de API `tofu@pve` de arriba.)
+
+   ```sh
+   server$ apt install -y sudo                  # Proxmox no lo trae
+   server$ useradd -m -s /bin/bash tofu
+   server$ install -d -m 700 -o tofu -g tofu /home/tofu/.ssh
+   server$ echo '<YOUR_SSH_PUBLIC_KEY>' > /home/tofu/.ssh/authorized_keys   # the contents of ~/.ssh/id_ed25519.pub
+   server$ chown tofu:tofu /home/tofu/.ssh/authorized_keys && chmod 600 /home/tofu/.ssh/authorized_keys
+   server$ cat > /etc/sudoers.d/tofu <<'EOF'
+   tofu ALL=(root) NOPASSWD: /usr/sbin/pvesm apiinfo
+   tofu ALL=(root) NOPASSWD: /usr/bin/tee ^/var/lib/vz/snippets/[a-zA-Z0-9_][a-zA-Z0-9_.-]*$
+   EOF
+   server$ chmod 440 /etc/sudoers.d/tofu && visudo -c
+   ```
+
+   La primera regla es como el proveedor comprueba que sudo funciona. La segunda le deja escribir un
+   fichero en la carpeta de snippets del almacenamiento `local`, y en ningún otro sitio.
+   (`/var/lib/vz` es donde vive `local`. Si tus snippets van a otro almacenamiento, usa su ruta de
+   `pvesh get /storage/<nombre>`.)
+
+   Compruébalo desde tu portátil. Debe mostrar una línea `APIVER` sin pedir contraseña:
+
+   ```sh
+   $ ssh-add -l                                  # your key is loaded in the SSH agent
+   $ ssh tofu@proxmox.home.example.com sudo pvesm apiinfo
+   APIVER …
+   ```
+
+   <Aside type="caution">Nunca amplíes estas reglas a los comandos `pvesm` o `qm` completos, ni a
+   `tee` con un `*`. Cualquiera de ellos equivale a ser root.</Aside>
+
+4. **Crea un bucket para el estado.**
+
+   <Tabs syncKey="state-bucket">
+   <TabItem label="Cloudflare R2">
+
+   R2 es el almacenamiento compatible con S3 de Cloudflare. El estado ocupa unos pocos kilobytes,
+   muy dentro del plan gratuito, pero la primera vez que activas R2 te pide un método de pago.
+
+   1. En el panel de Cloudflare, abre **R2 Object Storage** y pulsa **Create bucket**. Llámalo
+      `homelab-tofu-state` y deja la ubicación en automática.
+   2. En la vista general de R2, abre **Manage API tokens → Create API token**:
+      - Permisos: **Object Read & Write**.
+      - Alcance: **Apply to specific buckets only**, y elige `homelab-tofu-state`.
+   3. Cloudflare muestra un **Access Key ID** y un **Secret Access Key** una sola vez. Guarda los dos
+      en tu gestor de contraseñas.
+   4. Apunta tu **ID de cuenta**. Forma parte del endpoint S3 que aparece en los ajustes del bucket:
+      `https://<YOUR_CLOUDFLARE_ACCOUNT_ID>.r2.cloudflarestorage.com`. No es secreto.
+
+   </TabItem>
+   <TabItem label="Otro almacenamiento compatible con S3">
+
+   Sirve cualquier servicio compatible con S3: Amazon S3, Backblaze B2 u otro proveedor. Crea un
+   bucket privado y una clave de acceso que pueda leer y escribir **solo en ese bucket**. Apunta su
+   endpoint y su región. El fichero `backend.hcl.example` del ejemplo muestra qué cambiar.
+
+   Evita un bucket alojado en el propio homelab, al menos para este estado. El estado describe la
+   máquina, así que no debería vivir en esa misma máquina.
+
+   </TabItem>
+   </Tabs>
+
+5. **Elige una frase de paso para el estado.** Genera en tu gestor de contraseñas una frase de paso
+   larga y aleatoria (16 caracteres como mínimo) y guárdala allí.
+
+   <Aside type="danger">Sin la frase de paso, el estado no se puede descifrar. OpenTofu deja de saber
+   que gestiona la VM, y tendrías que volver a importarla a mano. Guárdala en tu gestor de
+   contraseñas, no solo en tu memoria.</Aside>
+
+6. **Decide cómo vas a cargar los secretos.** Cada vez que ejecutes `tofu`, la terminal necesita los
+   cuatro valores como variables de entorno. Escríbelos o pégalos, o cárgalos con la CLI de tu
+   gestor de contraseñas. Nunca los escribas en un fichero del repositorio:
+
+   ```sh
+   $ export PROXMOX_VE_API_TOKEN='tofu@pve!provider=<token secret>'
+   $ export AWS_ACCESS_KEY_ID='<bucket access key id>'
+   $ export AWS_SECRET_ACCESS_KEY='<bucket secret access key>'
+   $ export TF_VAR_state_passphrase='<state passphrase>'
+   ```
+
+   Duran hasta que cierras esa terminal.
+
+</Steps>
+
+Siguiente: [Crear la máquina](/es/machine/create/), pestaña OpenTofu.

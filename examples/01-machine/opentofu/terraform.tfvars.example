@@ -1,5 +1,6 @@
-# Copy to terraform.tfvars and fill in. terraform.tfvars is git-ignored: it holds your
-# environment's details. It must NEVER hold the API token (export PROXMOX_VE_API_TOKEN instead).
+# Copy to terraform.tfvars and fill in. It holds your environment's details but no secrets, so
+# commit it to your PRIVATE repository (never to a public one). It must NEVER hold a secret:
+# the API token, the bucket keys and the state passphrase are exported in your shell instead.
 
 proxmox_endpoint = "https://proxmox.home.example.com:8006/"
 proxmox_node     = "pve"

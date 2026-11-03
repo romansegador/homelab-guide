@@ -37,6 +37,7 @@ export default defineConfig({
 						{ slug: 'start-here/roadmap' },
 						{ slug: 'start-here/conventions' },
 						{ slug: 'start-here/agents' },
+						{ slug: 'start-here/faq' },
 					],
 				},
 				{
@@ -51,7 +52,7 @@ export default defineConfig({
 				{
 					label: '1 · The machine',
 					translations: { es: '1 · La máquina' },
-					items: [{ slug: 'machine/create' }],
+					items: [{ slug: 'machine/opentofu-setup' }, { slug: 'machine/create' }],
 				},
 			],
 		}),
