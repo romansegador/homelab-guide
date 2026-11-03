@@ -19,9 +19,9 @@ Las skills siguen dos reglas: **el agente nunca maneja tus valores secretos** (l
 
 El repositorio de la guía es un marketplace de plugins de Claude Code. Añádelo e instala el plugin:
 
-```sh
-$ claude plugin marketplace add romansegador/homelab-guide
-$ claude plugin install homelab-guide@homelab-guide
+```sh title="Portátil"
+claude plugin marketplace add romansegador/homelab-guide
+claude plugin install homelab-guide@homelab-guide
 ```
 
 Después, en una sesión, ejecuta la skill de un capítulo, por ejemplo `/homelab-guide:plan` o

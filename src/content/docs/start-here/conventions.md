@@ -21,8 +21,15 @@ The guide never uses anyone's real environment. Replace these with your own valu
 
 ## Commands
 
-- `$` marks a command you run on your **laptop**. `server$` marks one you run **on the
-  machine** over SSH.
+- Commands have no prompt characters (`$`), so the copy button gives you exactly what to run.
+- Each block's title says **where** to run it:
+  - **Laptop**: your own computer.
+  - **Proxmox host**: a root shell on the hypervisor (its web UI's *Shell*, or SSH).
+  - **The machine**: the VM (or bare-metal server) you create in chapter 1, over SSH.
+- Expected output is described in the text, or shown in a separate block, never mixed in with
+  the commands.
+- Code blocks carry no `#` comments. Pasted into macOS's default shell (zsh), a comment isn't
+  ignored and breaks the command. Explanations go in the text.
 - Long commands are split with `\`, so you can paste them as they are.
 - Every command that changes something is followed by a way to **check** that it worked.
 

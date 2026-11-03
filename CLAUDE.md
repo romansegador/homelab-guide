@@ -30,6 +30,10 @@ chapter has been executed for real before it's published.
 4. Roman reads it at http://localhost:4321 (`npm run dev`), follows it on the real machine and gives
    feedback. Refine, and only then mark it ✅ on the roadmap.
 
+Command blocks must be copy-paste clean (see `start-here/conventions`): no `$` or `server$`
+prompts, a `title` saying where to run it (`Laptop`, `Proxmox host`, `The machine`), no output
+mixed in, and no `#` comments (zsh on macOS doesn't ignore them when pasted).
+
 Skills: named after the concept (`plan`, `machine`, `cluster`…), not the tool. They must tell the
 agent to never handle secret values and to get explicit approval before creating, changing or deleting
 infrastructure. Keep the table on `start-here/agents` and the plugin in sync (`claude plugin validate .`).
@@ -42,6 +46,8 @@ infrastructure. Keep the table on `start-here/agents` and the plugin in sync (`c
 - When an English page changes, update its translations in the same PR, or open an issue.
   Starlight shows the English page when a translation is missing.
 - Keep code blocks, commands, file names and YAML identical across languages. Only prose is translated.
+  Code block **titles** (where to run it) are prose and are translated: Laptop / Portátil,
+  Proxmox host / Host de Proxmox, The machine / La máquina.
 
 ## Develop
 

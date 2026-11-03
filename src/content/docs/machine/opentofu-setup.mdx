@@ -29,10 +29,11 @@ never sees your token, keys or passphrase: you create and export those yourself.
 
 1. **Install OpenTofu** on your laptop ([install guide](https://opentofu.org/docs/intro/install/)), then check it:
 
-   ```sh
-   $ tofu version
-   OpenTofu v1.12.x
+   ```sh title="Laptop"
+   tofu version
    ```
+
+   It should print `OpenTofu v1.12.x` or newer.
 
    <Aside>Prefer **Terraform**? The examples work with it unchanged: type `terraform` where the
    guide types `tofu`. The one exception is the state encryption in step 5. Terraform doesn't have
@@ -41,15 +42,15 @@ never sees your token, keys or passphrase: you create and export those yourself.
 2. **Create a Proxmox API user and token.** It gets only the privileges it needs to manage VMs,
    not root:
 
-   ```sh
-   server$ pveum user add tofu@pve --comment "OpenTofu provisioning"
-   server$ pveum role add TofuProvisioner -privs "Datastore.Allocate Datastore.AllocateSpace \
+   ```sh title="Proxmox host"
+   pveum user add tofu@pve --comment "OpenTofu provisioning"
+   pveum role add TofuProvisioner -privs "Datastore.Allocate Datastore.AllocateSpace \
      Datastore.AllocateTemplate Datastore.Audit Pool.Audit SDN.Audit SDN.Use Sys.Audit Sys.Console \
      Sys.Modify VM.Allocate VM.Audit VM.Clone VM.Config.CDROM VM.Config.CPU VM.Config.Cloudinit \
      VM.Config.Disk VM.Config.HWType VM.Config.Memory VM.Config.Network VM.Config.Options \
      VM.Console VM.GuestAgent.Audit VM.Migrate VM.PowerMgmt"
-   server$ pveum aclmod / -user tofu@pve -role TofuProvisioner
-   server$ pveum user token add tofu@pve provider --privsep 0
+   pveum aclmod / -user tofu@pve -role TofuProvisioner
+   pveum user token add tofu@pve provider --privsep 0
    ```
 
    The last command prints the token secret **once**. Store it in your password manager now.
@@ -62,29 +63,32 @@ never sees your token, keys or passphrase: you create and export those yourself.
    because the Proxmox API can't upload "snippets". This Linux user can do **only** that: it may run
    two exact commands as root, and nothing else. (It's unrelated to the `tofu@pve` API user above.)
 
-   ```sh
-   server$ apt install -y sudo                  # Proxmox doesn't ship it
-   server$ useradd -m -s /bin/bash tofu
-   server$ install -d -m 700 -o tofu -g tofu /home/tofu/.ssh
-   server$ echo '<YOUR_SSH_PUBLIC_KEY>' > /home/tofu/.ssh/authorized_keys   # the contents of ~/.ssh/id_ed25519.pub
-   server$ chown tofu:tofu /home/tofu/.ssh/authorized_keys && chmod 600 /home/tofu/.ssh/authorized_keys
-   server$ cat > /etc/sudoers.d/tofu <<'EOF'
+   Replace `<YOUR_SSH_PUBLIC_KEY>` with the contents of your `~/.ssh/id_ed25519.pub`. The first
+   command installs `sudo`, which Proxmox doesn't ship:
+
+   ```sh title="Proxmox host"
+   apt install -y sudo
+   useradd -m -s /bin/bash tofu
+   install -d -m 700 -o tofu -g tofu /home/tofu/.ssh
+   echo '<YOUR_SSH_PUBLIC_KEY>' > /home/tofu/.ssh/authorized_keys
+   chown tofu:tofu /home/tofu/.ssh/authorized_keys && chmod 600 /home/tofu/.ssh/authorized_keys
+   cat > /etc/sudoers.d/tofu <<'EOF'
    tofu ALL=(root) NOPASSWD: /usr/sbin/pvesm apiinfo
    tofu ALL=(root) NOPASSWD: /usr/bin/tee ^/var/lib/vz/snippets/[a-zA-Z0-9_][a-zA-Z0-9_.-]*$
    EOF
-   server$ chmod 440 /etc/sudoers.d/tofu && visudo -c
+   chmod 440 /etc/sudoers.d/tofu && visudo -c
    ```
 
    The first rule is how the provider checks that sudo works. The second lets it write a file into
    the snippets folder of the `local` storage, and nowhere else. (`/var/lib/vz` is where `local`
    lives. If your snippets go to another storage, use its path from `pvesh get /storage/<name>`.)
 
-   Check it from your laptop. It must print an `APIVER` line without asking for a password:
+   Check it from your laptop. The first command must list your key (it's loaded in your SSH agent).
+   The second must print an `APIVER` line without asking for a password:
 
-   ```sh
-   $ ssh-add -l                                  # your key is loaded in the SSH agent
-   $ ssh tofu@proxmox.home.example.com sudo pvesm apiinfo
-   APIVER …
+   ```sh title="Laptop"
+   ssh-add -l
+   ssh tofu@proxmox.home.example.com sudo pvesm apiinfo
    ```
 
    <Aside type="caution">Never widen these rules to the whole `pvesm` or `qm` commands, or to
@@ -132,11 +136,11 @@ never sees your token, keys or passphrase: you create and export those yourself.
    values as environment variables. Type or paste them, or load them from your password manager's
    CLI. Never write them into a file in the repository:
 
-   ```sh
-   $ export PROXMOX_VE_API_TOKEN='tofu@pve!provider=<token secret>'
-   $ export AWS_ACCESS_KEY_ID='<bucket access key id>'
-   $ export AWS_SECRET_ACCESS_KEY='<bucket secret access key>'
-   $ export TF_VAR_state_passphrase='<state passphrase>'
+   ```sh title="Laptop"
+   export PROXMOX_VE_API_TOKEN='tofu@pve!provider=<token secret>'
+   export AWS_ACCESS_KEY_ID='<bucket access key id>'
+   export AWS_SECRET_ACCESS_KEY='<bucket secret access key>'
+   export TF_VAR_state_passphrase='<state passphrase>'
    ```
 
    They last until you close that terminal.

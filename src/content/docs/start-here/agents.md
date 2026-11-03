@@ -14,9 +14,9 @@ and **it never creates, changes or deletes infrastructure without your explicit 
 
 The guide's repository is a Claude Code plugin marketplace. Add it and install the plugin:
 
-```sh
-$ claude plugin marketplace add romansegador/homelab-guide
-$ claude plugin install homelab-guide@homelab-guide
+```sh title="Laptop"
+claude plugin marketplace add romansegador/homelab-guide
+claude plugin install homelab-guide@homelab-guide
 ```
 
 Then, in a session, run a chapter's skill, for example `/homelab-guide:plan` or

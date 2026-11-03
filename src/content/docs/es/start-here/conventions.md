@@ -26,8 +26,16 @@ La guía nunca usa el entorno real de nadie. Sustituye estos valores por los tuy
 
 ## Comandos
 
-- `$` indica un comando que ejecutas en tu **portátil**. `server$` indica uno que ejecutas **en
-  la máquina** por SSH.
+- Los comandos no llevan caracteres de prompt (`$`), así que el botón de copiar te da exactamente
+  lo que hay que ejecutar.
+- El título de cada bloque dice **dónde** ejecutarlo:
+  - **Portátil**: tu propio ordenador.
+  - **Host de Proxmox**: una terminal de root en el hipervisor (la *Shell* de su interfaz web, o SSH).
+  - **La máquina**: la VM (o el servidor físico) que creas en el capítulo 1, por SSH.
+- La salida esperada se describe en el texto, o se muestra en un bloque aparte, nunca mezclada con
+  los comandos.
+- Los bloques de código no llevan comentarios `#`. Si los pegas en la terminal por defecto de macOS
+  (zsh), un comentario no se ignora y rompe el comando. Las explicaciones van en el texto.
 - Los comandos largos se parten con `\`, así que puedes pegarlos tal cual.
 - Cada comando que cambia algo va seguido de una forma de **comprobar** que ha funcionado.
 

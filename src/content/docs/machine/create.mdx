@@ -68,12 +68,17 @@ same idea as the GitOps chapter, applied to the machine itself.
    restricted SSH user, the state bucket and the passphrase from that page.
 
 2. **Let Proxmox store images and snippets.** On the Proxmox host, look at what the `local` storage
-   already holds, then add `import` and `snippets` **while keeping every existing type**:
+   already holds:
 
-   ```sh
-   server$ pvesm config local | grep content
-   	content backup,iso,vztmpl
-   server$ pvesm set local --content backup,iso,vztmpl,import,snippets
+   ```sh title="Proxmox host"
+   pvesm config local | grep content
+   ```
+
+   It prints something like `content backup,iso,vztmpl`. Add `import` and `snippets` to that list,
+   **keeping every type already there**:
+
+   ```sh title="Proxmox host"
+   pvesm set local --content backup,iso,vztmpl,import,snippets
    ```
 
    <Aside type="caution">`--content` **replaces** the list. If you leave out a type that was there,
@@ -92,11 +97,12 @@ same idea as the GitOps chapter, applied to the machine itself.
    | `cloud-init/user-data.yaml.tftpl` | What the VM does on first boot |
    | `terraform.tfvars.example` | Your values go in a copy of this file |
 
-4. **Fill in your values.** Copy the two example files, then edit them:
+4. **Fill in your values.** Copy the two example files, then edit them: `terraform.tfvars` takes
+   your hostnames, IPs and sizes, `backend.hcl` your bucket name and endpoint.
 
-   ```sh
-   $ cp terraform.tfvars.example terraform.tfvars   # hostnames, IPs, sizes
-   $ cp backend.hcl.example backend.hcl             # bucket name and endpoint
+   ```sh title="Laptop"
+   cp terraform.tfvars.example terraform.tfvars
+   cp backend.hcl.example backend.hcl
    ```
 
    Neither file holds a secret, so commit both to your **private** repository. That way a rebuild
@@ -105,13 +111,13 @@ same idea as the GitOps chapter, applied to the machine itself.
 5. **Plan.** Export the four secrets in this shell only (see
    [step 6 of the setup](/machine/opentofu-setup/)), then ask OpenTofu what it would do:
 
-   ```sh
-   $ export PROXMOX_VE_API_TOKEN='tofu@pve!provider=<token secret>'
-   $ export AWS_ACCESS_KEY_ID='<bucket access key id>'
-   $ export AWS_SECRET_ACCESS_KEY='<bucket secret access key>'
-   $ export TF_VAR_state_passphrase='<state passphrase>'
-   $ tofu init -backend-config=backend.hcl
-   $ tofu plan
+   ```sh title="Laptop"
+   export PROXMOX_VE_API_TOKEN='tofu@pve!provider=<token secret>'
+   export AWS_ACCESS_KEY_ID='<bucket access key id>'
+   export AWS_SECRET_ACCESS_KEY='<bucket secret access key>'
+   export TF_VAR_state_passphrase='<state passphrase>'
+   tofu init -backend-config=backend.hcl
+   tofu plan
    ```
 
    Read the plan. It should list **3 to add, 0 to change, 0 to destroy**: the image download, the
@@ -119,8 +125,8 @@ same idea as the GitOps chapter, applied to the machine itself.
 
 6. **Apply.**
 
-   ```sh
-   $ tofu apply
+   ```sh title="Laptop"
+   tofu apply
    ```
 
    Type `yes` when asked. The image download takes a minute. The VM then boots and cloud-init runs,
@@ -180,22 +186,32 @@ Why it's done this way: see the [FAQ](/start-here/faq/#where-is-the-opentofu-sta
 7. **Start the VM** and wait 1–2 minutes.
 
 8. **Finish what the UI can't do.** The UI can't pass a custom cloud-init file, so the data disk
-   and the guest agent are set up by hand, once:
+   and the guest agent are set up by hand, once. Log in:
 
-   ```sh
-   $ ssh admin@192.168.10.50
-   server$ sudo apt update && sudo apt install -y qemu-guest-agent
-   server$ sudo systemctl enable --now qemu-guest-agent
-   server$ lsblk                                  # the empty 100G disk is sdb; check before you format it
-   server$ sudo parted -s /dev/sdb mklabel gpt mkpart data ext4 0% 100%
-   server$ sudo mkfs.ext4 -L data /dev/sdb1
-   server$ sudo mkdir -p /data
-   server$ echo 'LABEL=data /data ext4 defaults,nofail 0 2' | sudo tee -a /etc/fstab
-   server$ sudo systemctl daemon-reload && sudo mount /data
+   ```sh title="Laptop"
+   ssh admin@192.168.10.50
    ```
 
-   <Aside type="caution">Run `lsblk` first and make sure `/dev/sdb` really is the **empty** 100 GB
-   disk. Formatting the wrong disk destroys its data.</Aside>
+   Install the guest agent, then list the disks:
+
+   ```sh title="The machine"
+   sudo apt update && sudo apt install -y qemu-guest-agent
+   sudo systemctl enable --now qemu-guest-agent
+   lsblk
+   ```
+
+   <Aside type="caution">Make sure `sdb` really is the **empty** 100 GB disk, with no partitions
+   under it. Formatting the wrong disk destroys its data.</Aside>
+
+   Then format the data disk and mount it at `/data`:
+
+   ```sh title="The machine"
+   sudo parted -s /dev/sdb mklabel gpt mkpart data ext4 0% 100%
+   sudo mkfs.ext4 -L data /dev/sdb1
+   sudo mkdir -p /data
+   echo 'LABEL=data /data ext4 defaults,nofail 0 2' | sudo tee -a /etc/fstab
+   sudo systemctl daemon-reload && sudo mount /data
+   ```
 
 </Steps>
 
@@ -210,32 +226,46 @@ name `lsblk` shows. You can skip the guest agent.
 
 ## Check it
 
-Log in and check each item. Every one should match:
+Log in:
 
-```sh
-$ ssh admin@192.168.10.50
-server$ cloud-init status --wait
-status: done
-server$ lsblk -f /dev/sdb                      # an ext4 filesystem labelled "data"
-server$ findmnt /data                          # mounted
-server$ grep /data /etc/fstab                  # and it will be mounted again after a reboot
-server$ systemctl is-active qemu-guest-agent
-active
-server$ sudo sshd -T | grep -E '^(passwordauthentication|permitrootlogin) '
-passwordauthentication no
-permitrootlogin no
-server$ systemctl is-enabled unattended-upgrades
-enabled
+```sh title="Laptop"
+ssh admin@192.168.10.50
 ```
+
+Run the checks:
+
+```sh title="The machine"
+cloud-init status --wait
+lsblk -f /dev/sdb
+findmnt /data
+grep /data /etc/fstab
+systemctl is-active qemu-guest-agent
+sudo sshd -T | grep -E '^(passwordauthentication|permitrootlogin) '
+systemctl is-enabled unattended-upgrades
+```
+
+Every one should match, in order:
+- `status: done`: cloud-init finished without errors.
+- `sdb1` has an `ext4` filesystem labelled `data`.
+- `/data` is mounted.
+- `/etc/fstab` has a `LABEL=data /data` line, so it's mounted again after a reboot.
+- `active`: the guest agent is running.
+- `passwordauthentication no` and `permitrootlogin no`.
+- `enabled`: automatic security updates are on.
 
 In Proxmox, the VM's *Summary* now shows its IP address (that's the guest agent at work).
 
 Finally, **reboot once** and check `/data` again. A mount that only works until the first reboot
 is the classic way this chapter goes wrong:
 
-```sh
-server$ sudo reboot
-$ ssh admin@192.168.10.50 findmnt /data
+```sh title="The machine"
+sudo reboot
+```
+
+Wait a minute, then check from your laptop:
+
+```sh title="Laptop"
+ssh admin@192.168.10.50 findmnt /data
 ```
 
 ## Before you move on

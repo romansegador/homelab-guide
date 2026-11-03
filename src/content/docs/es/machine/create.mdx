@@ -76,12 +76,17 @@ la misma idea que el capítulo de GitOps, aplicada a la propia máquina.
    usuario SSH restringido, el bucket del estado y la frase de paso de esa página.
 
 2. **Permite que Proxmox guarde imágenes y snippets.** En el host de Proxmox, mira qué guarda ya el
-   almacenamiento `local` y añade `import` y `snippets` **conservando todos los tipos existentes**:
+   almacenamiento `local`:
 
-   ```sh
-   server$ pvesm config local | grep content
-   	content backup,iso,vztmpl
-   server$ pvesm set local --content backup,iso,vztmpl,import,snippets
+   ```sh title="Host de Proxmox"
+   pvesm config local | grep content
+   ```
+
+   Muestra algo como `content backup,iso,vztmpl`. Añade `import` y `snippets` a esa lista,
+   **conservando todos los tipos que ya estaban**:
+
+   ```sh title="Host de Proxmox"
+   pvesm set local --content backup,iso,vztmpl,import,snippets
    ```
 
    <Aside type="caution">`--content` **sustituye** la lista. Si dejas fuera un tipo que ya estaba,
@@ -100,11 +105,12 @@ la misma idea que el capítulo de GitOps, aplicada a la propia máquina.
    | `cloud-init/user-data.yaml.tftpl` | Lo que hace la VM en el primer arranque |
    | `terraform.tfvars.example` | Tus valores van en una copia de este fichero |
 
-4. **Rellena tus valores.** Copia los dos ficheros de ejemplo y edítalos:
+4. **Rellena tus valores.** Copia los dos ficheros de ejemplo y edítalos: `terraform.tfvars` lleva
+   tus nombres de máquina, IPs y tamaños, y `backend.hcl` el nombre y el endpoint de tu bucket.
 
-   ```sh
-   $ cp terraform.tfvars.example terraform.tfvars   # hostnames, IPs, sizes
-   $ cp backend.hcl.example backend.hcl             # bucket name and endpoint
+   ```sh title="Portátil"
+   cp terraform.tfvars.example terraform.tfvars
+   cp backend.hcl.example backend.hcl
    ```
 
    Ninguno de los dos contiene secretos, así que haz commit de ambos en tu repositorio **privado**.
@@ -114,13 +120,13 @@ la misma idea que el capítulo de GitOps, aplicada a la propia máquina.
 5. **Planifica.** Exporta los cuatro secretos solo en esta terminal (ver el
    [paso 6 de la preparación](/es/machine/opentofu-setup/)) y pregunta a OpenTofu qué haría:
 
-   ```sh
-   $ export PROXMOX_VE_API_TOKEN='tofu@pve!provider=<token secret>'
-   $ export AWS_ACCESS_KEY_ID='<bucket access key id>'
-   $ export AWS_SECRET_ACCESS_KEY='<bucket secret access key>'
-   $ export TF_VAR_state_passphrase='<state passphrase>'
-   $ tofu init -backend-config=backend.hcl
-   $ tofu plan
+   ```sh title="Portátil"
+   export PROXMOX_VE_API_TOKEN='tofu@pve!provider=<token secret>'
+   export AWS_ACCESS_KEY_ID='<bucket access key id>'
+   export AWS_SECRET_ACCESS_KEY='<bucket secret access key>'
+   export TF_VAR_state_passphrase='<state passphrase>'
+   tofu init -backend-config=backend.hcl
+   tofu plan
    ```
 
    Lee el plan. Debe indicar **3 to add, 0 to change, 0 to destroy**: la descarga de la imagen, el
@@ -128,8 +134,8 @@ la misma idea que el capítulo de GitOps, aplicada a la propia máquina.
 
 6. **Aplica.**
 
-   ```sh
-   $ tofu apply
+   ```sh title="Portátil"
+   tofu apply
    ```
 
    Escribe `yes` cuando te lo pida. La descarga de la imagen tarda un minuto. Después la VM arranca
@@ -190,22 +196,33 @@ Cualquier equipo con el repositorio, los cuatro secretos y acceso de red a Proxm
 7. **Arranca la VM** y espera 1–2 minutos.
 
 8. **Termina lo que la interfaz no puede hacer.** La interfaz no permite pasar un fichero de
-   cloud-init propio, así que el disco de datos y el agente invitado se configuran a mano, una vez:
+   cloud-init propio, así que el disco de datos y el agente invitado se configuran a mano, una vez.
+   Entra en la máquina:
 
-   ```sh
-   $ ssh admin@192.168.10.50
-   server$ sudo apt update && sudo apt install -y qemu-guest-agent
-   server$ sudo systemctl enable --now qemu-guest-agent
-   server$ lsblk                                  # el disco vacío de 100G es sdb; compruébalo antes de formatear
-   server$ sudo parted -s /dev/sdb mklabel gpt mkpart data ext4 0% 100%
-   server$ sudo mkfs.ext4 -L data /dev/sdb1
-   server$ sudo mkdir -p /data
-   server$ echo 'LABEL=data /data ext4 defaults,nofail 0 2' | sudo tee -a /etc/fstab
-   server$ sudo systemctl daemon-reload && sudo mount /data
+   ```sh title="Portátil"
+   ssh admin@192.168.10.50
    ```
 
-   <Aside type="caution">Ejecuta antes `lsblk` y asegúrate de que `/dev/sdb` es de verdad el disco
-   **vacío** de 100 GB. Formatear el disco equivocado destruye sus datos.</Aside>
+   Instala el agente invitado y lista los discos:
+
+   ```sh title="La máquina"
+   sudo apt update && sudo apt install -y qemu-guest-agent
+   sudo systemctl enable --now qemu-guest-agent
+   lsblk
+   ```
+
+   <Aside type="caution">Asegúrate de que `sdb` es de verdad el disco **vacío** de 100 GB, sin
+   particiones debajo. Formatear el disco equivocado destruye sus datos.</Aside>
+
+   Después formatea el disco de datos y móntalo en `/data`:
+
+   ```sh title="La máquina"
+   sudo parted -s /dev/sdb mklabel gpt mkpart data ext4 0% 100%
+   sudo mkfs.ext4 -L data /dev/sdb1
+   sudo mkdir -p /data
+   echo 'LABEL=data /data ext4 defaults,nofail 0 2' | sudo tee -a /etc/fstab
+   sudo systemctl daemon-reload && sudo mount /data
+   ```
 
 </Steps>
 
@@ -220,32 +237,46 @@ disco de datos, con el nombre de dispositivo que muestre `lsblk`. Puedes saltart
 
 ## Compruébalo
 
-Entra en la máquina y revisa cada punto. Todos deben coincidir:
+Entra en la máquina:
 
-```sh
-$ ssh admin@192.168.10.50
-server$ cloud-init status --wait
-status: done
-server$ lsblk -f /dev/sdb                      # un sistema de ficheros ext4 con la etiqueta "data"
-server$ findmnt /data                          # montado
-server$ grep /data /etc/fstab                  # y se volverá a montar tras reiniciar
-server$ systemctl is-active qemu-guest-agent
-active
-server$ sudo sshd -T | grep -E '^(passwordauthentication|permitrootlogin) '
-passwordauthentication no
-permitrootlogin no
-server$ systemctl is-enabled unattended-upgrades
-enabled
+```sh title="Portátil"
+ssh admin@192.168.10.50
 ```
+
+Ejecuta las comprobaciones:
+
+```sh title="La máquina"
+cloud-init status --wait
+lsblk -f /dev/sdb
+findmnt /data
+grep /data /etc/fstab
+systemctl is-active qemu-guest-agent
+sudo sshd -T | grep -E '^(passwordauthentication|permitrootlogin) '
+systemctl is-enabled unattended-upgrades
+```
+
+Todas deben coincidir, en orden:
+- `status: done`: cloud-init terminó sin errores.
+- `sdb1` tiene un sistema de ficheros `ext4` con la etiqueta `data`.
+- `/data` está montado.
+- `/etc/fstab` tiene una línea `LABEL=data /data`, así que se vuelve a montar tras reiniciar.
+- `active`: el agente invitado está en marcha.
+- `passwordauthentication no` y `permitrootlogin no`.
+- `enabled`: las actualizaciones de seguridad automáticas están activadas.
 
 En Proxmox, el *Summary* de la VM muestra ahora su dirección IP (es el agente invitado en acción).
 
 Por último, **reinicia una vez** y vuelve a comprobar `/data`. Un montaje que solo funciona hasta el
 primer reinicio es el fallo clásico de este capítulo:
 
-```sh
-server$ sudo reboot
-$ ssh admin@192.168.10.50 findmnt /data
+```sh title="La máquina"
+sudo reboot
+```
+
+Espera un minuto y compruébalo desde tu portátil:
+
+```sh title="Portátil"
+ssh admin@192.168.10.50 findmnt /data
 ```
 
 ## Antes de seguir
