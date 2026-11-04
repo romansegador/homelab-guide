@@ -1,0 +1,19 @@
+# Network settings for the VM's first boot (netplan v2 format, read by cloud-init).
+# The card is matched by name pattern, not renamed: on Ubuntu 26.04 renaming it to eth0 (what
+# Proxmox's own generated settings do) fails because the card is already up, and the VM silently
+# falls back to DHCP.
+network:
+  version: 2
+  ethernets:
+    lan:
+      match:
+        name: "en*"
+      dhcp4: false
+      addresses:
+        - ${ipv4_cidr}
+      routes:
+        - to: default
+          via: ${ipv4_gateway}
+      nameservers:
+        addresses: [${join(", ", dns_servers)}]
+        search: [${search_domain}]

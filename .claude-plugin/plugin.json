@@ -1,0 +1,10 @@
+{
+  "name": "homelab-guide",
+  "version": "0.1.0",
+  "description": "Agent skills that walk you through the Homelab Guide chapter by chapter: plan, machine, cluster, GitOps, secrets, HTTPS and more.",
+  "author": { "name": "Homelab Guide contributors" },
+  "homepage": "https://github.com/romansegador/homelab-guide",
+  "repository": "https://github.com/romansegador/homelab-guide",
+  "license": "MIT",
+  "keywords": ["homelab", "proxmox", "opentofu", "cloud-init", "kubernetes", "k3s", "argocd", "gitops"]
+}

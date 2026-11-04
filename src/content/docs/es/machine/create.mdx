@@ -1,0 +1,342 @@
+---
+title: Crear la máquina
+description: Crea la VM a partir de una imagen cloud de Ubuntu con cloud-init, desde la interfaz web de Proxmox o como código con OpenTofu.
+---
+
+import { Tabs, TabItem, Steps, Aside } from '@astrojs/starlight/components';
+
+:::note[Traducción asistida por IA]
+Esta página es una traducción asistida por IA del original en inglés, que es la referencia. Si
+ves un error, abre un issue o un PR.
+:::
+
+Vas a crear la máquina sobre la que corren todos los capítulos siguientes. Al terminar tendrás:
+- una VM con Ubuntu Server 26.04 y tu IP estática,
+- acceso SSH solo con tu clave,
+- el agente invitado de Proxmox,
+- actualizaciones de seguridad automáticas,
+- un **disco de datos aparte montado en `/data`**.
+
+<Aside type="tip" title="Hazlo con un agente de IA">
+Este capítulo tiene una skill para agentes, `machine`. Consulta [Usar con un agente de IA](/es/start-here/agents/).
+</Aside>
+
+**Probado con:** Proxmox VE 9.2, imagen cloud de Ubuntu Server 26.04.1 LTS (kernel 7.0), OpenTofu 1.12, proveedor
+bpg/proxmox 0.120.
+
+## Antes, dos ideas
+
+### Imágenes cloud y cloud-init
+No instalas el sistema operativo a mano. Ubuntu publica **imágenes cloud**: un disco listo para usar
+con **Ubuntu Server** ya instalado. Sin escritorio, unos 850 MB. Lo que les falta es *tu* configuración: tu usuario, tu clave
+SSH, tu IP.
+
+Eso es lo que hace **cloud-init**. Se ejecuta en el **primer arranque** de la VM y lee un pequeño
+fichero YAML (llamado *user-data*) que tú le das. En él dices cosas como «crea el usuario `ops`
+con esta clave SSH y sin contraseña», «formatea el segundo disco y móntalo en `/data`» o «instala
+estos paquetes». Proxmox trae soporte para cloud-init y le pasa el fichero a la VM en una pequeña
+unidad virtual.
+
+El resultado es que puedes describir una máquina en un fichero, recrearla idéntica y no pasar nunca
+por un instalador.
+
+### OpenTofu
+**OpenTofu** es una herramienta de **infraestructura como código**. Escribes ficheros que describen
+lo que debe existir (esta VM, con estos discos, en esta red), y OpenTofu hace que la realidad
+coincida:
+- `tofu plan` muestra exactamente qué crearía, cambiaría o borraría, sin cambiar nada;
+- `tofu apply` lo hace, después de que confirmes.
+
+Es la bifurcación de código abierto de Terraform, mantenida por la Linux Foundation, y usa el mismo
+lenguaje: los ejemplos también funcionan con Terraform
+([por qué OpenTofu](/es/start-here/faq/#por-qué-opentofu-y-no-terraform)). Un **proveedor** le enseña a hablar con una plataforma concreta. Aquí es `bpg/proxmox`.
+
+**¿Merece la pena para una sola VM?** Sí, porque la definición de la VM vive en git junto a todo lo
+demás. Puedes revisar un cambio antes de que ocurra, y reconstruir la máquina es un solo comando. Es
+la misma idea que el capítulo de GitOps, aplicada a la propia máquina.
+
+## Antes de empezar
+
+- [ ] Tus decisiones del capítulo 0: nombre, IP/CIDR, puerta de enlace, servidor DNS, tamaños.
+- [ ] Proxmox VE **8.4 o posterior** (`pveversion` en el host). Este capítulo usa el tipo de
+      contenido *import* que introdujo la 8.4.
+- [ ] Un par de claves SSH, con la clave pública en un fichero (`ls ~/.ssh/id_ed25519.pub`; créalo
+      con `ssh-keygen -t ed25519`). Si tu clave vive en un gestor de contraseñas, consulta la nota
+      de [Preparar OpenTofu](/es/machine/opentofu-setup/).
+- [ ] Los nombres de tu nodo de Proxmox (`pvesh get /nodes`), del almacenamiento de VMs (a menudo
+      `local-lvm`), del almacenamiento de directorio (a menudo `local`) y del puente de red (a
+      menudo `vmbr0`).
+
+## Crear la VM
+
+<Tabs syncKey="vm-method">
+<TabItem label="OpenTofu (como código)">
+
+<Steps>
+
+1. **Haz antes [Preparar OpenTofu](/es/machine/opentofu-setup/).** Necesitas el token de API, el
+   usuario SSH restringido, el bucket del estado y la frase de paso de esa página. Su
+   [última sección](/es/machine/opentofu-setup/#dónde-estás-ahora) es una lista de comprobación.
+
+2. **Permite que Proxmox guarde imágenes y snippets.** En el host de Proxmox, mira qué guarda ya el
+   almacenamiento `local`:
+
+   ```sh title="Host de Proxmox"
+   pvesm config local | grep content
+   ```
+
+   Muestra algo como `content backup,iso,vztmpl`. Añade `import` y `snippets` a esa lista,
+   **conservando todos los tipos que ya estaban**:
+
+   ```sh title="Host de Proxmox"
+   pvesm set local --content backup,iso,vztmpl,import,snippets
+   ```
+
+   <Aside type="caution">`--content` **sustituye** la lista. Si dejas fuera un tipo que ya estaba,
+   Proxmox deja de mostrar ese contenido.</Aside>
+
+3. **Pon el código del ejemplo en tu repositorio privado.** Es el repositorio git donde vive tu
+   infraestructura (el capítulo 3 le añade la configuración del clúster). Si aún no tienes uno,
+   crea en GitHub un repositorio **privado** vacío y clónalo. Después copia el ejemplo
+   [`examples/01-machine/opentofu`](https://github.com/romansegador/homelab-guide/tree/main/examples/01-machine/opentofu)
+   en una carpeta propia, por ejemplo `infra/proxmox/`:
+
+   ```sh title="Portátil"
+   git clone --depth 1 https://github.com/romansegador/homelab-guide.git /tmp/homelab-guide
+   mkdir -p <YOUR_REPO>/infra
+   cp -R /tmp/homelab-guide/examples/01-machine/opentofu <YOUR_REPO>/infra/proxmox
+   cd <YOUR_REPO>/infra/proxmox
+   ```
+
+   Todos los comandos a partir de aquí se ejecutan **dentro de esa carpeta**.
+
+   | Fichero | Qué contiene |
+   |---|---|
+   | `versions.tf`, `provider.tf` | Versiones de OpenTofu y del proveedor, y cómo llegar a Proxmox |
+   | `backend.tf`, `backend.hcl.example` | Dónde se guarda el estado (tu bucket) |
+   | `encryption.tf` | Cómo se cifra el estado antes de subirlo |
+   | `variables.tf` | Cada ajuste, con descripción y valor por defecto |
+   | `main.tf` | La descarga de la imagen, el fichero de cloud-init y la VM |
+   | `cloud-init/user-data.yaml.tftpl` | Lo que hace la VM en el primer arranque |
+   | `cloud-init/network-config.yaml.tftpl` | Su IP estática, puerta de enlace y DNS |
+   | `terraform.tfvars.example` | Tus valores van en una copia de este fichero |
+   | `load-secrets.sh` | Carga los cuatro secretos en tu terminal (pasos siguientes) |
+
+4. **Rellena tus valores.** Copia los dos ficheros de ejemplo y edítalos: `terraform.tfvars` lleva
+   tus nombres de máquina, IPs y tamaños, y `backend.hcl` el nombre y el endpoint de tu bucket.
+
+   ```sh title="Portátil"
+   cp terraform.tfvars.example terraform.tfvars
+   cp backend.hcl.example backend.hcl
+   ```
+
+   Ninguno de los dos contiene secretos, así que haz commit de ambos en tu repositorio **privado**.
+   Así una reconstrucción no depende de tu portátil. Los secretos se quedan en tu terminal (paso
+   siguiente).
+
+5. **Carga los secretos.** Ejecuta el script con `source`, para que los valores se queden en tu
+   terminal. Pega cada valor desde tu gestor de contraseñas cuando te lo pida. No se muestra en
+   pantalla:
+
+   ```sh title="Portátil"
+   source ./load-secrets.sh
+   ```
+
+   Al final lista las cuatro variables como `set`. Si alguna aparece como `EMPTY`, pulsaste Enter
+   sin pegar nada: vuelve a ejecutarlo. Si pegas solo el secreto del token, el script añade por ti
+   el id de token por defecto, `tofu@pve!provider`.
+
+6. **Planifica.** Conecta OpenTofu con tu bucket (`init`, una vez por carpeta) y pregúntale qué
+   haría:
+
+   ```sh title="Portátil"
+   tofu init -backend-config=backend.hcl
+   tofu plan
+   ```
+
+   Lee el plan. Debe indicar **4 to add, 0 to change, 0 to destroy**: la descarga de la imagen, los
+   dos ficheros de cloud-init y la VM.
+
+7. **Aplica.**
+
+   ```sh title="Portátil"
+   tofu apply
+   ```
+
+   Escribe `yes` cuando te lo pida. La descarga de la imagen tarda un minuto. Después la VM arranca
+   y cloud-init se ejecuta, lo que lleva otros 2–4 minutos mientras instala actualizaciones.
+
+8. **Comprueba que el estado ha llegado al bucket, cifrado.** Es el objeto
+   `machine/terraform.tfstate`. Su contenido es un bloque `encrypted_data`, no un JSON legible.
+
+</Steps>
+
+<Aside type="note" title="¿Dónde está el estado?">
+En tu bucket, cifrado con tu frase de paso. No hay ningún `terraform.tfstate` en tu portátil.
+Cualquier equipo con el repositorio, los cuatro secretos y acceso de red a Proxmox puede ejecutar
+`tofu plan`. Por qué se hace así: consulta las
+[preguntas frecuentes](/es/start-here/faq/#dónde-está-el-estado-de-opentofu-y-por-qué-remoto-y-cifrado).
+</Aside>
+
+</TabItem>
+<TabItem label="Interfaz web de Proxmox">
+
+<Steps>
+
+1. **Permite que Proxmox guarde imágenes importadas.** Ve a *Datacenter → Storage → local → Edit*.
+   En *Content*, añade **Import**, conservando todo lo que ya estaba seleccionado.
+
+2. **Descarga la imagen cloud de Ubuntu.** Ve a *tu nodo → local → Import → Download from URL*:
+   - URL: `https://cloud-images.ubuntu.com/releases/resolute/release-20261016/ubuntu-26.04-server-cloudimg-amd64.img`
+   - File name: `ubuntu-26.04-server-cloudimg-amd64.qcow2` (la extensión `.qcow2` importa)
+   - *Advanced*: Hash algorithm `SHA-256`, Checksum `5645d0318ad21f643ebb1ac4567514620e9893380b07b0201fda163baa5b7eb5` (del fichero `SHA256SUMS` junto a la imagen)
+
+3. **Crea la VM** (*Create VM*, arriba a la derecha):
+   - **General:** tu nombre de máquina como nombre, cualquier ID de VM libre.
+   - **OS:** *Do not use any media*. Guest OS: Linux.
+   - **System:** Machine `q35`, controlador SCSI *VirtIO SCSI single*, marca **Qemu Agent**.
+   - **Disks:**
+     - `scsi0`: almacenamiento `local-lvm`, **Import Storage** `local`, **Disk Image**
+       `ubuntu-26.04-server-cloudimg-amd64.qcow2`, marca *Discard* y *SSD emulation*.
+     - Pulsa **Add** para `scsi1`: almacenamiento `local-lvm`, tamaño **100 GiB**, *Discard*, *SSD emulation*.
+   - **CPU:** 6 núcleos, tipo `host`.
+   - **Memory:** 16384 MiB.
+   - **Network:** puente `vmbr0`.
+   - **Confirm:** desmarca *Start after created*.
+
+4. **Completa el hardware**, en la pestaña *Hardware* de la nueva VM:
+   - *Add → CloudInit Drive*, almacenamiento `local-lvm`.
+   - *Add → Serial Port*, puerto 0 (las imágenes cloud lo esperan).
+   - Selecciona `scsi0` y luego *Disk Action → Resize*. Añade lo necesario para llegar a **40 GiB** (la imagen empieza en unos 3,5 GiB).
+
+5. **Ajusta el orden de arranque.** En *Options → Boot Order*, activa `scsi0` y ponlo el primero.
+
+6. **Rellena Cloud-Init** (pestaña *Cloud-Init*):
+   - User: `ops` (no `admin`: Ubuntu 26.04 ya tiene un grupo con ese nombre). Deja la contraseña vacía.
+   - SSH public key: pega el contenido de tu `~/.ssh/id_ed25519.pub`.
+   - Dominio DNS `home.example.com`, servidores DNS `192.168.10.53`.
+   - IP Config: estática, `192.168.10.50/24`, puerta de enlace `192.168.10.1`.
+
+   Después pulsa **Regenerate Image**.
+
+   <Aside type="caution">Aún sin verificar con Ubuntu 26.04. Con estos campos de IP de Proxmox, la
+   26.04 puede ignorar la IP estática y tomar una dirección del DHCP de tu router. El camino de
+   OpenTofu lo evita con su propio fichero de red. Si te pasa, busca la dirección de la VM en las
+   concesiones DHCP de tu router y entra por ahí.</Aside>
+
+7. **Arranca la VM** y espera 1–2 minutos.
+
+8. **Termina lo que la interfaz no puede hacer.** La interfaz no permite pasar un fichero de
+   cloud-init propio, así que el disco de datos y el agente invitado se configuran a mano, una vez.
+   Entra en la máquina:
+
+   ```sh title="Portátil"
+   ssh ops@192.168.10.50
+   ```
+
+   Instala el agente invitado y lista los discos:
+
+   ```sh title="La máquina"
+   sudo apt update && sudo apt install -y qemu-guest-agent
+   sudo systemctl enable --now qemu-guest-agent
+   lsblk
+   ```
+
+   <Aside type="caution">Asegúrate de que `sdb` es de verdad el disco **vacío** de 100 GB, sin
+   particiones debajo. Formatear el disco equivocado destruye sus datos.</Aside>
+
+   Después formatea el disco de datos y móntalo en `/data`:
+
+   ```sh title="La máquina"
+   sudo parted -s /dev/sdb mklabel gpt mkpart data ext4 0% 100%
+   sudo mkfs.ext4 -L data /dev/sdb1
+   sudo mkdir -p /data
+   echo 'LABEL=data /data ext4 defaults,nofail 0 2' | sudo tee -a /etc/fstab
+   sudo systemctl daemon-reload && sudo mount /data
+   ```
+
+</Steps>
+
+</TabItem>
+</Tabs>
+
+<Aside type="note" title="¿Equipo físico en lugar de una VM?">
+Instala Ubuntu Server 26.04 desde la ISO, dale tu IP estática e importa tu clave SSH desde el
+instalador. Después sigue el paso 8 de la pestaña de la interfaz web para formatear y montar el
+disco de datos, con el nombre de dispositivo que muestre `lsblk`. Puedes saltarte el agente invitado.
+</Aside>
+
+## Compruébalo
+
+Entra en la máquina:
+
+```sh title="Portátil"
+ssh ops@192.168.10.50
+```
+
+Ejecuta las comprobaciones:
+
+```sh title="La máquina"
+cloud-init status --wait
+lsblk -f /dev/sdb
+findmnt /data
+grep /data /etc/fstab
+systemctl is-active qemu-guest-agent
+sudo sshd -T | grep -E '^(passwordauthentication|permitrootlogin) '
+systemctl is-enabled unattended-upgrades
+```
+
+Todas deben coincidir, en orden:
+- `status: done`: cloud-init terminó sin errores.
+- `sdb1` tiene un sistema de ficheros `ext4` con la etiqueta `data`.
+- `/data` está montado.
+- `/etc/fstab` tiene una línea `LABEL=data /data`, así que se vuelve a montar tras reiniciar.
+- `active`: el agente invitado está en marcha.
+- `passwordauthentication no` y `permitrootlogin no`.
+- `enabled`: las actualizaciones de seguridad automáticas están activadas.
+
+En Proxmox, el *Summary* de la VM muestra ahora su dirección IP (es el agente invitado en acción).
+
+Por último, **reinicia una vez** y vuelve a comprobar `/data`. Un montaje que solo funciona hasta el
+primer reinicio es el fallo clásico de este capítulo:
+
+```sh title="La máquina"
+sudo reboot
+```
+
+Espera un minuto y compruébalo desde tu portátil:
+
+```sh title="Portátil"
+ssh ops@192.168.10.50 findmnt /data
+```
+
+## Antes de seguir
+
+- [ ] Todas las comprobaciones pasan, también después de reiniciar.
+- [ ] Haz una primera **copia de seguridad** de la VM (más abajo). Es tu punto de restauración de
+      «máquina limpia».
+- [ ] Si usaste OpenTofu, haz commit de la carpeta en tu repositorio privado, incluidos
+      `terraform.tfvars` y `backend.hcl`, pero nunca un secreto. El `.gitignore` deja fuera
+      `.terraform/` y cualquier fichero de estado o de plan local.
+
+## Haz una primera copia de seguridad
+
+Una copia de seguridad es una copia completa de la VM en un fichero. Guárdala en un almacenamiento
+**fuera del disco de la propia máquina**, por ejemplo un NAS añadido a Proxmox como almacenamiento
+de copias. Una copia en el mismo disco se pierde con él.
+
+En la interfaz web: selecciona la VM y luego *Backup → Backup now*:
+- **Storage:** tu almacenamiento de copias.
+- **Mode:** *Snapshot*. La VM sigue funcionando.
+- **Compression:** *ZSTD*.
+- **Notes:** algo como `clean machine, chapter 1`.
+
+O desde el host de Proxmox, con el id de tu VM y el nombre de tu almacenamiento:
+
+```sh title="Host de Proxmox"
+vzdump <VMID> --storage <YOUR_BACKUP_STORAGE> --mode snapshot --compress zstd --notes-template "{{guestname}}: clean machine, chapter 1"
+```
+
+Tarda uno o dos minutos. Después la copia aparece en la pestaña *Backup* de la VM.
+
+Siguiente: el clúster.
