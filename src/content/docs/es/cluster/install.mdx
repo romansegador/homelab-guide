@@ -89,77 +89,50 @@ El razonamiento detrás de cada elección está en las [preguntas frecuentes](/e
    viene. Docker Desktop, por ejemplo, instala el suyo en `/usr/local/bin`. Asegúrate de que el de
    Homebrew va primero en tu `PATH`, o quita el antiguo.
 
-2. **Escribe el fichero de configuración de k3s.** Copia
+2. **Consigue el fichero de configuración y el script de instalación.** Copia
    [`examples/02-cluster`](https://github.com/romansegador/homelab-guide/tree/main/examples/02-cluster)
    a tu repositorio privado como `infra/k3s/`. En `config.yaml`, cambia `tls-san` por el nombre DNS
-   de tu máquina. Lee el resto: cada línea está explicada. Ejecuta los comandos de portátil de este
-   capítulo desde la carpeta raíz de tu repositorio. Copia el fichero a la máquina:
+   de tu máquina y lee el resto: cada línea está explicada. `install.sh` también es corto, y vale
+   la pena leerlo antes de ejecutarlo. Ejecuta los comandos de portátil de este capítulo desde la
+   carpeta raíz de tu repositorio.
+
+3. **Instala k3s.** El script trabaja por SSH, así que lo ejecutas desde tu portátil:
 
    ```sh title="Portátil"
-   scp infra/k3s/config.yaml ops@lab-1.home.example.com:/tmp/k3s-config.yaml
+   bash infra/k3s/install.sh ops@lab-1.home.example.com
    ```
 
-   ```sh title="La máquina"
-   sudo install -D -m 600 /tmp/k3s-config.yaml /etc/rancher/k3s/config.yaml
-   rm /tmp/k3s-config.yaml
-   ```
+   Tarda uno o dos minutos y hace cuatro pasos:
+   1. copia `config.yaml` a `/etc/rancher/k3s/config.yaml` en la máquina,
+   2. instala k3s con el script oficial de instalación, en la versión fijada al principio de
+      `install.sh`,
+   3. espera a que el nodo esté `Ready` y toma una primera instantánea,
+   4. guarda el kubeconfig como `~/.kube/lab-1.yaml`, apuntando al nombre de la máquina y con sus
+      entradas llamadas `lab-1`.
 
-3. **Instala k3s**, con la versión fijada. Descarga antes el script oficial de instalación, para
-   ejecutar un fichero que puedes leer en lugar de pasar internet directamente a una terminal de
-   root:
-
-   ```sh title="La máquina"
-   curl -sfL https://get.k3s.io -o /tmp/install-k3s.sh
-   sudo INSTALL_K3S_VERSION=v1.37.2+k3s1 sh /tmp/install-k3s.sh
-   ```
-
-   Tarda alrededor de un minuto. Después comprueba que el nodo está `Ready`:
-
-   ```sh title="La máquina"
-   sudo k3s kubectl get nodes
-   ```
+   Puedes volver a ejecutarlo sin problema, por ejemplo después de cambiar `config.yaml`.
 
 4. **Guarda el token del servidor** en tu gestor de contraseñas, como «k3s server token (lab-1)».
    Esto lo muestra para que puedas copiarlo:
 
-   ```sh title="La máquina"
-   sudo cat /var/lib/rancher/k3s/server/token
+   ```sh title="Portátil"
+   ssh ops@lab-1.home.example.com sudo cat /var/lib/rancher/k3s/server/token
    ```
 
    <Aside type="caution">Sin este token, las instantáneas no se pueden restaurar en una máquina
    nueva. También es la llave que permite a otras máquinas unirse al clúster, así que guárdalo en
    secreto.</Aside>
 
-5. **Copia el kubeconfig a tu portátil.** Esto lo guarda como un fichero propio, lo apunta al
-   nombre de la máquina en lugar de a `127.0.0.1` y renombra sus entradas `default` a `lab-1`:
+   Guarda allí también una copia de `~/.kube/lab-1.yaml`.
+
+5. **Apunta kubectl al clúster.** `KUBECONFIG` lista los ficheros que leen kubectl, k9s y helm.
+   Añadir el nuevo fichero conserva los clústeres que ya tengas, y un fichero que no existe se
+   ignora. Añádelo al fichero de arranque de tu shell (`~/.zshrc` en macOS, `~/.bashrc` en la
+   mayoría de Linux) y después selecciona el clúster:
 
    ```sh title="Portátil"
-   mkdir -p ~/.kube
-   ssh ops@lab-1.home.example.com sudo cat /etc/rancher/k3s/k3s.yaml \
-     | sed -e 's/127\.0\.0\.1/lab-1.home.example.com/' -e 's/: default$/: lab-1/' \
-     > ~/.kube/lab-1.yaml
-   chmod 600 ~/.kube/lab-1.yaml
-   ```
-
-   Si aún no tienes `~/.kube/config`, usa este fichero como tu configuración:
-
-   ```sh title="Portátil"
-   cp ~/.kube/lab-1.yaml ~/.kube/config
-   ```
-
-   Si ya tienes uno (de Docker Desktop o de otro clúster), combina los dos. Esto deja una copia de
-   seguridad:
-
-   ```sh title="Portátil"
-   cp ~/.kube/config ~/.kube/config.bak
-   KUBECONFIG=~/.kube/config:~/.kube/lab-1.yaml kubectl config view --flatten > ~/.kube/config.new
-   mv ~/.kube/config.new ~/.kube/config && chmod 600 ~/.kube/config
-   ```
-
-   Después selecciona el clúster y guarda una copia de `~/.kube/lab-1.yaml` en tu gestor de
-   contraseñas:
-
-   ```sh title="Portátil"
+   echo 'export KUBECONFIG="$HOME/.kube/config:$HOME/.kube/lab-1.yaml"' >> ~/.zshrc
+   source ~/.zshrc
    kubectl config use-context lab-1
    ```
 
@@ -178,17 +151,7 @@ El razonamiento detrás de cada elección está en las [preguntas frecuentes](/e
    k9s
    ```
 
-7. **Toma a mano una primera instantánea** y lístalas:
-
-   ```sh title="La máquina"
-   sudo k3s etcd-snapshot save --name first
-   sudo k3s etcd-snapshot ls
-   ```
-
-   Aparece con una ubicación `file://` bajo `/data/etcd-snapshots`. A partir de ahora k3s toma una
-   cada 6 horas.
-
-8. **Programa una copia de seguridad nocturna de la VM.** En la interfaz web de Proxmox:
+7. **Programa una copia de seguridad nocturna de la VM.** En la interfaz web de Proxmox:
    *Datacenter → Backup → Add*:
    - **Storage:** tu almacenamiento de copias.
    - **Schedule:** una hora en la que la máquina esté tranquila, por ejemplo `02:30`.
@@ -231,6 +194,15 @@ Después quita la prueba:
 ```sh title="Portátil"
 kubectl delete -f infra/k3s/test-volume.yaml
 ```
+
+**Se están tomando instantáneas:**
+
+```sh title="La máquina"
+sudo k3s etcd-snapshot ls
+```
+
+Aparece la instantánea `first` de la instalación, con una ubicación `file://` bajo
+`/data/etcd-snapshots`. A partir de ahora k3s añade una cada 6 horas.
 
 **Los Secrets están cifrados:**
 
@@ -278,11 +250,10 @@ recibirlas directamente.
    ```
 
 3. En `infra/k3s/config.yaml`, quita el comentario de las líneas `etcd-s3` y
-   `etcd-s3-config-secret`. Copia el fichero a la máquina como en el paso 2, reinicia k3s y toma
-   una instantánea:
+   `etcd-s3-config-secret`. Copia el fichero a la máquina y reinicia k3s volviendo a ejecutar
+   `install.sh` (paso 3). Después toma una instantánea:
 
    ```sh title="La máquina"
-   sudo systemctl restart k3s
    sudo k3s etcd-snapshot save --name first-s3
    sudo k3s etcd-snapshot ls
    ```

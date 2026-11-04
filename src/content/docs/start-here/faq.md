@@ -121,7 +121,8 @@ once), or full **kubeadm** (more parts to run yourself).
 
 ### Why install it with a script and a config file, not cloud-init or a tool like k3sup?
 The config file is the source of truth, and it lives in your repository. The install is one
-visible step that you can read, rerun and debug. Baking k3s into cloud-init would rebuild the
+short script, run from your laptop over SSH, that you can read, rerun and debug. It wraps the
+official k3s install script, and does by hand-sized steps what k3sup does. Baking k3s into cloud-init would rebuild the
 cluster automatically with the VM, but a failure would be hidden inside a first boot, and it
 mixes "the machine" with "the cluster". **k3sup** is a handy installer, but it's one more tool,
 and it hides the config. Either is a fine choice later, once you know what the steps do.

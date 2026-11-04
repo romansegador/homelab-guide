@@ -9,8 +9,8 @@ You're helping the user install k3s on the machine from chapter 1 and manage it 
 
 Guide page: `/cluster/install/` (or `src/content/docs/cluster/install.mdx` in the guide repo).
 Reasoning behind the choices: `/start-here/faq/` (chapter 2 section).
-Example files: `examples/02-cluster/` (`config.yaml`, `test-volume.yaml`, and `create-etcd-s3-secret.sh`
-for the optional bucket upload).
+Example files: `examples/02-cluster/` (`config.yaml`, `install.sh`, `test-volume.yaml`, and
+`create-etcd-s3-secret.sh` for the optional bucket upload).
 
 ## Ground rules
 
@@ -32,7 +32,7 @@ for the optional bucket upload).
 1. The machine's DNS name or IP, and the SSH user (`ops` in the guide).
 2. The Proxmox backup storage outside the machine (for example a NAS), and whether a backup job
    already exists that the VM can join (`pvesh get /cluster/backup`, read-only).
-3. Whether `~/.kube/config` already exists on the laptop (merge instead of overwrite).
+3. Which shell the user runs (`~/.zshrc` or `~/.bashrc` for the KUBECONFIG line).
 
 ## Steps
 
@@ -40,23 +40,24 @@ for the optional bucket upload).
    (kubectl supports clusters one minor version older or newer than itself). Watch for an older
    kubectl earlier in `PATH`, for example Docker Desktop's in `/usr/local/bin`.
 2. Copy `examples/02-cluster/` to `infra/k3s/`. Set `tls-san` to the machine's DNS name.
-   `scp` it to the machine, then `sudo install -D -m 600 … /etc/rancher/k3s/config.yaml`.
-3. Machine: download `https://get.k3s.io` to a file, then
-   `sudo INSTALL_K3S_VERSION=<pinned> sh /tmp/install-k3s.sh`. Check `sudo k3s kubectl get nodes`.
-4. The user saves `/var/lib/rancher/k3s/server/token` to their password manager. They're needed
-   for restoring snapshots on a new host.
-5. Kubeconfig: the user runs the guide's `ssh … sudo cat /etc/rancher/k3s/k3s.yaml | sed … >
-   ~/.kube/lab-1.yaml`. Merge with an existing config (back it up first), then
-   `kubectl config use-context <name>`.
-6. Machine: `sudo k3s etcd-snapshot save --name first`, then `sudo k3s etcd-snapshot ls`: a
-   `file://` entry under `/data/etcd-snapshots`.
+3. Laptop (with the user's OK): `bash infra/k3s/install.sh <user>@<machine>`. It copies the config,
+   installs k3s at the version pinned in the script (official `get.k3s.io` script), waits for
+   `Ready`, takes a `first` snapshot and writes `~/.kube/<machine>.yaml`. It never prints secrets.
+   Rerun it after changing `config.yaml` (the installer restarts k3s).
+4. The user saves the server token (`ssh <user>@<machine> sudo cat /var/lib/rancher/k3s/server/token`)
+   and `~/.kube/<machine>.yaml` to their password manager. The token is needed to restore snapshots
+   on a new host. Never run that command yourself.
+5. Laptop: add `export KUBECONFIG="$HOME/.kube/config:$HOME/.kube/<machine>.yaml"` to the shell
+   startup file, then `kubectl config use-context <machine>`. Missing files in the list are skipped.
+6. Machine: `sudo k3s etcd-snapshot ls` shows `first` with a `file://` entry under
+   `/data/etcd-snapshots`.
 7. Nightly VM backup (with the user's OK): add the VM to an existing job, or create one
    (UI *Datacenter → Backup → Add*, or `pvesh create /cluster/backup --schedule 02:30 --vmid <id>
    --storage <storage> --mode snapshot --compress zstd --prune-backups keep-daily=7,keep-weekly=4`),
    then *Run now*.
 8. Optional bucket upload: separate bucket + scoped key, `bash infra/k3s/create-etcd-s3-secret.sh`
-   (the user enters the values), uncomment `etcd-s3` / `etcd-s3-config-secret`, copy the config,
-   `sudo systemctl restart k3s`, take a snapshot: both `file://` and `s3://` entries appear.
+   (the user enters the values), uncomment `etcd-s3` / `etcd-s3-config-secret`, rerun `install.sh`,
+   take a snapshot: both `file://` and `s3://` entries appear.
 
 ## Verify
 

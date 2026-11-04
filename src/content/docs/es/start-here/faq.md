@@ -132,7 +132,8 @@ muy bueno, pero con más que aprender a la vez) o **kubeadm** completo (más pie
 
 ### ¿Por qué instalarlo con un script y un fichero de configuración, y no con cloud-init o con una herramienta como k3sup?
 El fichero de configuración es la fuente de verdad y vive en tu repositorio. La instalación es un
-paso visible que puedes leer, repetir y depurar. Meter k3s en cloud-init reconstruiría el clúster
+script corto, ejecutado desde tu portátil por SSH, que puedes leer, repetir y depurar. Envuelve el
+script oficial de instalación de k3s y hace, en pasos que se ven, lo mismo que k3sup. Meter k3s en cloud-init reconstruiría el clúster
 automáticamente con la VM, pero un fallo quedaría escondido dentro de un primer arranque, y mezcla
 «la máquina» con «el clúster». **k3sup** es un instalador práctico, pero es una herramienta más y
 esconde la configuración. Cualquiera de las dos es buena opción más adelante, cuando ya sepas qué
