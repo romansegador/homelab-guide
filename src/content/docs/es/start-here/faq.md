@@ -120,3 +120,51 @@ junto a la definición de la VM. Así el capítulo 1 se queda en una herramienta
 que corre en la máquina después lo gestionan el clúster y GitOps. Ansible brilla cuando configuras
 muchas máquinas una y otra vez a lo largo de su vida. Con una sola máquina, que prefieres reconstruir
 antes que parchear a mano, sería una segunda herramienta para poca ganancia.
+
+## Capítulo 2 · El clúster
+
+### ¿Por qué k3s?
+Es un Kubernetes completo y certificado en un solo programa. Se instala en un minuto, en reposo usa
+bastante menos de 1 GB de RAM e incluye lo que necesita un clúster de una máquina (ingress, un
+balanceador, volúmenes). Lo que aprendes sirve para cualquier Kubernetes. Alternativas: **k0s** y
+**MicroK8s** (idea parecida), **Talos** (un sistema operativo inmutable que solo es Kubernetes:
+muy bueno, pero con más que aprender a la vez) o **kubeadm** completo (más piezas que gestionar tú).
+
+### ¿Por qué instalarlo con un script y un fichero de configuración, y no con cloud-init o con una herramienta como k3sup?
+El fichero de configuración es la fuente de verdad y vive en tu repositorio. La instalación es un
+paso visible que puedes leer, repetir y depurar. Meter k3s en cloud-init reconstruiría el clúster
+automáticamente con la VM, pero un fallo quedaría escondido dentro de un primer arranque, y mezcla
+«la máquina» con «el clúster». **k3sup** es un instalador práctico, pero es una herramienta más y
+esconde la configuración. Cualquiera de las dos es buena opción más adelante, cuando ya sepas qué
+hacen los pasos.
+
+### ¿Por qué etcd integrado y no SQLite, que es lo predeterminado?
+Para una máquina SQLite es más ligero, pero etcd aporta dos cosas que la guía quiere:
+- **instantáneas integradas**, programadas y con copias enviadas fuera de la máquina. Con SQLite
+  tendrías que montarlo tú;
+- **margen para crecer**: más nodos *servidor* pueden unirse después a un clúster etcd. Con SQLite,
+  las máquinas extra solo pueden unirse como trabajadoras.
+
+El coste es algo más de RAM (unos cientos de MB) y más escrituras en disco. En un SSD no es
+problema.
+
+### ¿Por qué las claves de las instantáneas van en un Secret de Kubernetes y no en el fichero de configuración?
+Para que el fichero de configuración no contenga credenciales y pueda vivir en git. k3s lee los
+datos del bucket de un Secret en `kube-system` cuando toma una instantánea. En el capítulo 4 ese
+Secret vendrá del gestor de secretos en lugar de un script. Un detalle: para **restaurar** en una
+máquina nueva todavía no hay clúster que guarde el Secret, así que pasas los datos del bucket por
+la línea de comandos. Están en tu gestor de contraseñas.
+
+### ¿Por qué mantener Traefik, ServiceLB y local-path?
+Ya están ahí, funcionan y encajan con una sola máquina. Traefik es además lo que muchos montajes
+con Docker ya usan como ingress. Sustituirlos es fácil más adelante (k3s puede desactivar cada uno),
+y cada sustituto sería una cosa más que aprender antes de que funcione tu primera aplicación. Los
+volúmenes local-path son carpetas normales en una sola máquina. Aquí no es problema, porque todo el
+clúster es una máquina. Una segunda máquina traería la elección de un almacenamiento replicado, y
+eso está en la hoja de ruta.
+
+### ¿Por qué fijar la versión de k3s?
+Para que instalar de nuevo (en una máquina reconstruida) dé el mismo clúster que antes. Las
+actualizaciones ocurren cuando tú decides, de una versión menor en una, después de una instantánea.
+Se trata en el capítulo de operación diaria.
+

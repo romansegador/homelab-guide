@@ -1,0 +1,31 @@
+# A throwaway volume and pod, to check that storage works and lands on the data disk.
+# kubectl apply -f test-volume.yaml, check, then kubectl delete -f test-volume.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: test-volume
+  namespace: default
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-volume
+  namespace: default
+spec:
+  containers:
+    - name: writer
+      image: busybox:1.37
+      command: ["sh", "-c", "echo 'hello from the cluster' > /mnt/hello.txt && sleep 3600"]
+      volumeMounts:
+        - name: data
+          mountPath: /mnt
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: test-volume

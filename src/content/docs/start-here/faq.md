@@ -109,3 +109,47 @@ definition. That keeps chapter 1 to one tool and one command. Everything that ru
 afterwards is managed by the cluster and GitOps. Ansible shines when you configure many machines
 repeatedly over their lifetime. With one machine that you'd rather rebuild than patch by hand, it
 would be a second tool for little gain.
+
+## Chapter 2 · The cluster
+
+### Why k3s?
+It's a full, certified Kubernetes in a single program. It installs in a minute, idles at well
+under 1 GB of RAM, and includes what a one-machine cluster needs (ingress, a load balancer,
+volumes). What you learn transfers to any Kubernetes. Alternatives: **k0s** and **MicroK8s**
+(similar idea), **Talos** (an immutable OS that is only Kubernetes: great, but more to learn at
+once), or full **kubeadm** (more parts to run yourself).
+
+### Why install it with a script and a config file, not cloud-init or a tool like k3sup?
+The config file is the source of truth, and it lives in your repository. The install is one
+visible step that you can read, rerun and debug. Baking k3s into cloud-init would rebuild the
+cluster automatically with the VM, but a failure would be hidden inside a first boot, and it
+mixes "the machine" with "the cluster". **k3sup** is a handy installer, but it's one more tool,
+and it hides the config. Either is a fine choice later, once you know what the steps do.
+
+### Why embedded etcd and not the default SQLite?
+For one machine SQLite is lighter, but etcd brings two things the guide wants:
+- **built-in snapshots**, scheduled, with copies sent off the machine. With SQLite you'd build
+  that yourself;
+- **room to grow**: more *server* nodes can join an etcd cluster later. With SQLite, extra
+  machines can only join as workers.
+
+The cost is some extra RAM (a few hundred MB) and more disk writes. On an SSD that's fine.
+
+### Why do the snapshot keys go in a Kubernetes Secret, not in the config file?
+So the config file holds no credentials and can live in git. k3s reads the bucket details from a
+Secret in `kube-system` when it takes a snapshot. In chapter 4 that Secret will come from the
+secrets manager instead of a script. One catch: to **restore** onto a fresh machine, there's no
+cluster to hold the Secret yet, so you pass the bucket details on the command line. They're in
+your password manager.
+
+### Why keep Traefik, ServiceLB and local-path?
+They're already there, they work, and they fit one machine. Traefik is also what many Docker
+setups already use for ingress. Replacing them is easy later (k3s can disable each one), and each
+replacement would be one more thing to learn before your first app runs. local-path volumes are
+plain folders on one machine. That's fine here, because the whole cluster is one machine. A second
+machine would bring a replicated storage choice, and that's on the roadmap.
+
+### Why pin the k3s version?
+So installing again (on a rebuilt machine) gives the same cluster as before. Upgrades happen when
+you choose to, one minor version at a time, after a snapshot. That's covered in the Day 2 chapter.
+

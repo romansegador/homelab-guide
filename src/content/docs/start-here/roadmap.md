@@ -10,7 +10,7 @@ build progresses.
 |---|---|---|---|
 | 0 | **Plan** | Architecture decisions, machine sizing, DNS and certificate plan | ✅ Written |
 | 1 | **The machine** | A VM (or bare metal) with an OS disk and a separate data disk, hardened for SSH | ✅ Tested (OpenTofu path) |
-| 2 | **The cluster** | A single-node k3s cluster, `kubectl` and `k9s` on your laptop | Planned |
+| 2 | **The cluster** | A single-node k3s cluster, `kubectl` and `k9s` on your laptop | ✍️ Draft, being tested |
 | 3 | **GitOps** | A config repository and ArgoCD, bootstrapped with the "app of apps" pattern | Planned |
 | 4 | **Secrets** | An external secrets manager synced into the cluster (Bitwarden Secrets Manager + External Secrets Operator) | Planned |
 | 5 | **HTTPS and private DNS** | cert-manager with DNS-01, a wildcard certificate, ingress, internal DNS records | Planned |
