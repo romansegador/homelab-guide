@@ -108,9 +108,10 @@ variable "search_domain" {
 }
 
 variable "admin_user" {
+  # Not "admin": Ubuntu 26.04 already has an "admin" group, so creating that user fails.
   description = "The login user created on the VM (SSH key only, passwordless sudo)"
   type        = string
-  default     = "admin"
+  default     = "ops"
 }
 
 variable "ssh_public_key_file" {

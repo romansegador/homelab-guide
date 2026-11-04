@@ -27,7 +27,7 @@ You don't install the OS by hand. Ubuntu publishes **cloud images**: a ready-mad
 your IP.
 
 That's what **cloud-init** does. It runs on the VM's **first boot** and reads a small YAML file
-(called *user-data*) that you provide. In it you say things like "create user `admin` with this
+(called *user-data*) that you provide. In it you say things like "create user `ops` with this
 SSH key, no password", "format the second disk and mount it at `/data`", "install these packages".
 Proxmox has cloud-init support built in, and hands the file to the VM on a small virtual drive.
 
@@ -110,6 +110,7 @@ same idea as the GitOps chapter, applied to the machine itself.
    | `variables.tf` | Every setting, with a description and a default |
    | `main.tf` | The image download, the cloud-init file and the VM |
    | `cloud-init/user-data.yaml.tftpl` | What the VM does on first boot |
+   | `cloud-init/network-config.yaml.tftpl` | Its static IP, gateway and DNS |
    | `terraform.tfvars.example` | Your values go in a copy of this file |
    | `load-secrets.sh` | Loads the four secrets into your terminal (next steps) |
 
@@ -143,8 +144,8 @@ same idea as the GitOps chapter, applied to the machine itself.
    tofu plan
    ```
 
-   Read the plan. It should list **3 to add, 0 to change, 0 to destroy**: the image download, the
-   user-data file and the VM.
+   Read the plan. It should list **4 to add, 0 to change, 0 to destroy**: the image download, the
+   two cloud-init files and the VM.
 
 7. **Apply.**
 
@@ -200,12 +201,17 @@ Why it's done this way: see the [FAQ](/start-here/faq/#where-is-the-opentofu-sta
 5. **Set the boot order.** In *Options → Boot Order*, enable `scsi0` and move it first.
 
 6. **Fill in Cloud-Init** (*Cloud-Init* tab):
-   - User: `admin`. Leave the password empty.
+   - User: `ops` (not `admin`: Ubuntu 26.04 already has a group with that name). Leave the password empty.
    - SSH public key: paste the contents of your `~/.ssh/id_ed25519.pub`.
    - DNS domain `home.example.com`, DNS servers `192.168.10.53`.
    - IP Config: static, `192.168.10.50/24`, gateway `192.168.10.1`.
 
    Then click **Regenerate Image**.
+
+   <Aside type="caution">Not yet verified with Ubuntu 26.04. With these Proxmox IP fields, 26.04
+   can ignore the static IP and take an address from your router's DHCP instead. The OpenTofu path
+   avoids this with its own network file. If it happens to you, find the VM's address in your
+   router's DHCP leases and log in there.</Aside>
 
 7. **Start the VM** and wait 1–2 minutes.
 
@@ -213,7 +219,7 @@ Why it's done this way: see the [FAQ](/start-here/faq/#where-is-the-opentofu-sta
    and the guest agent are set up by hand, once. Log in:
 
    ```sh title="Laptop"
-   ssh admin@192.168.10.50
+   ssh ops@192.168.10.50
    ```
 
    Install the guest agent, then list the disks:
@@ -253,7 +259,7 @@ name `lsblk` shows. You can skip the guest agent.
 Log in:
 
 ```sh title="Laptop"
-ssh admin@192.168.10.50
+ssh ops@192.168.10.50
 ```
 
 Run the checks:
@@ -289,7 +295,7 @@ sudo reboot
 Wait a minute, then check from your laptop:
 
 ```sh title="Laptop"
-ssh admin@192.168.10.50 findmnt /data
+ssh ops@192.168.10.50 findmnt /data
 ```
 
 ## Before you move on

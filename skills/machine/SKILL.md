@@ -69,7 +69,7 @@ Create the VM (guide page `/machine/create/`, OpenTofu tab):
    and `backend.hcl` from their `.example` files.
 3. The user loads the four secrets with `source ./load-secrets.sh` (hidden prompts, in their own
    terminal; it reports each variable as `set`/`EMPTY`, never the value). Then run
-   `tofu init -backend-config=backend.hcl` and `tofu plan`. Walk the user through the plan (expect 3 to add). Apply only after their OK.
+   `tofu init -backend-config=backend.hcl` and `tofu plan`. Walk the user through the plan (expect 4 to add: image, user-data, network-config, VM). Apply only after their OK.
 4. Confirm the bucket holds `machine/terraform.tfstate`, and that it's encrypted (an
    `encrypted_data` field, no readable resources).
 
@@ -78,6 +78,15 @@ Create the VM (guide page `/machine/create/`, OpenTofu tab):
 Follow the guide page's UI tab step by step. The data disk is formatted and mounted by hand
 after first boot (the commands are on the page), because the UI can't attach custom cloud-init
 user-data.
+
+## Known pitfalls (Ubuntu 26.04)
+
+- The login user must not be `admin`: 26.04 already has an `admin` group, `useradd` fails, and SSH
+  then rejects the key. The example defaults to `ops`.
+- Proxmox's own IP fields make cloud-init rename the NIC to `eth0`, which fails on 26.04 (`[busy]`),
+  and the VM falls back to DHCP. The example passes its own netplan network-config (match `en*`).
+- Diagnose a VM you can't log into from the Proxmox host (root, the user runs it):
+  `qm guest exec <vmid> -- cloud-init status --long`.
 
 ## Verify (both paths)
 

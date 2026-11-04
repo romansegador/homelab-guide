@@ -32,7 +32,7 @@ con **Ubuntu Server** ya instalado. Sin escritorio, unos 850 MB. Lo que les falt
 SSH, tu IP.
 
 Eso es lo que hace **cloud-init**. Se ejecuta en el **primer arranque** de la VM y lee un pequeño
-fichero YAML (llamado *user-data*) que tú le das. En él dices cosas como «crea el usuario `admin`
+fichero YAML (llamado *user-data*) que tú le das. En él dices cosas como «crea el usuario `ops`
 con esta clave SSH y sin contraseña», «formatea el segundo disco y móntalo en `/data`» o «instala
 estos paquetes». Proxmox trae soporte para cloud-init y le pasa el fichero a la VM en una pequeña
 unidad virtual.
@@ -118,6 +118,7 @@ la misma idea que el capítulo de GitOps, aplicada a la propia máquina.
    | `variables.tf` | Cada ajuste, con descripción y valor por defecto |
    | `main.tf` | La descarga de la imagen, el fichero de cloud-init y la VM |
    | `cloud-init/user-data.yaml.tftpl` | Lo que hace la VM en el primer arranque |
+   | `cloud-init/network-config.yaml.tftpl` | Su IP estática, puerta de enlace y DNS |
    | `terraform.tfvars.example` | Tus valores van en una copia de este fichero |
    | `load-secrets.sh` | Carga los cuatro secretos en tu terminal (pasos siguientes) |
 
@@ -153,8 +154,8 @@ la misma idea que el capítulo de GitOps, aplicada a la propia máquina.
    tofu plan
    ```
 
-   Lee el plan. Debe indicar **3 to add, 0 to change, 0 to destroy**: la descarga de la imagen, el
-   fichero user-data y la VM.
+   Lee el plan. Debe indicar **4 to add, 0 to change, 0 to destroy**: la descarga de la imagen, los
+   dos ficheros de cloud-init y la VM.
 
 7. **Aplica.**
 
@@ -211,12 +212,17 @@ Cualquier equipo con el repositorio, los cuatro secretos y acceso de red a Proxm
 5. **Ajusta el orden de arranque.** En *Options → Boot Order*, activa `scsi0` y ponlo el primero.
 
 6. **Rellena Cloud-Init** (pestaña *Cloud-Init*):
-   - User: `admin`. Deja la contraseña vacía.
+   - User: `ops` (no `admin`: Ubuntu 26.04 ya tiene un grupo con ese nombre). Deja la contraseña vacía.
    - SSH public key: pega el contenido de tu `~/.ssh/id_ed25519.pub`.
    - Dominio DNS `home.example.com`, servidores DNS `192.168.10.53`.
    - IP Config: estática, `192.168.10.50/24`, puerta de enlace `192.168.10.1`.
 
    Después pulsa **Regenerate Image**.
+
+   <Aside type="caution">Aún sin verificar con Ubuntu 26.04. Con estos campos de IP de Proxmox, la
+   26.04 puede ignorar la IP estática y tomar una dirección del DHCP de tu router. El camino de
+   OpenTofu lo evita con su propio fichero de red. Si te pasa, busca la dirección de la VM en las
+   concesiones DHCP de tu router y entra por ahí.</Aside>
 
 7. **Arranca la VM** y espera 1–2 minutos.
 
@@ -225,7 +231,7 @@ Cualquier equipo con el repositorio, los cuatro secretos y acceso de red a Proxm
    Entra en la máquina:
 
    ```sh title="Portátil"
-   ssh admin@192.168.10.50
+   ssh ops@192.168.10.50
    ```
 
    Instala el agente invitado y lista los discos:
@@ -265,7 +271,7 @@ disco de datos, con el nombre de dispositivo que muestre `lsblk`. Puedes saltart
 Entra en la máquina:
 
 ```sh title="Portátil"
-ssh admin@192.168.10.50
+ssh ops@192.168.10.50
 ```
 
 Ejecuta las comprobaciones:
@@ -301,7 +307,7 @@ sudo reboot
 Espera un minuto y compruébalo desde tu portátil:
 
 ```sh title="Portátil"
-ssh admin@192.168.10.50 findmnt /data
+ssh ops@192.168.10.50 findmnt /data
 ```
 
 ## Antes de seguir

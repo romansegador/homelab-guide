@@ -28,7 +28,24 @@ resource "proxmox_virtual_environment_file" "user_data" {
   }
 }
 
-# 3. The VM.
+# 3. The network settings for the first boot (static IP, gateway, DNS).
+resource "proxmox_virtual_environment_file" "network_config" {
+  node_name    = var.proxmox_node
+  datastore_id = var.files_datastore
+  content_type = "snippets"
+
+  source_raw {
+    file_name = "${var.hostname}-network-config.yaml"
+    data = templatefile("${path.module}/cloud-init/network-config.yaml.tftpl", {
+      ipv4_cidr     = var.ipv4_cidr
+      ipv4_gateway  = var.ipv4_gateway
+      dns_servers   = var.dns_servers
+      search_domain = var.search_domain
+    })
+  }
+}
+
+# 4. The VM.
 resource "proxmox_virtual_environment_vm" "machine" {
   name      = var.hostname
   node_name = var.proxmox_node
@@ -86,22 +103,13 @@ resource "proxmox_virtual_environment_vm" "machine" {
   # Cloud images expect a serial console.
   serial_device {}
 
+  # Both cloud-init files are ours. Proxmox's own IP fields aren't used: on Ubuntu 26.04 they
+  # make cloud-init rename the network card, which fails (see network-config.yaml.tftpl).
   initialization {
     datastore_id = var.vm_datastore
 
-    ip_config {
-      ipv4 {
-        address = var.ipv4_cidr
-        gateway = var.ipv4_gateway
-      }
-    }
-
-    dns {
-      servers = var.dns_servers
-      domain  = var.search_domain
-    }
-
-    user_data_file_id = proxmox_virtual_environment_file.user_data.id
+    user_data_file_id    = proxmox_virtual_environment_file.user_data.id
+    network_data_file_id = proxmox_virtual_environment_file.network_config.id
   }
 }
 

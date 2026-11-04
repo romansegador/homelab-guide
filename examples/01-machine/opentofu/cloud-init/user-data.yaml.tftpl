@@ -1,10 +1,10 @@
 #cloud-config
-# Runs once, on the VM's first boot. Proxmox applies the network settings separately.
+# Runs once, on the VM's first boot. The network settings are in network-config.yaml.tftpl.
 
 hostname: ${hostname}
 timezone: ${timezone}
 
-# --- Access: one admin user, SSH key only -------------------------------------------
+# --- Access: one admin user, SSH key only ---------------------------------------------
 users:
   - name: ${admin_user}
     groups: [sudo]
