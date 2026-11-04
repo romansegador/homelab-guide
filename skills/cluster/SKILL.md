@@ -44,8 +44,8 @@ Example files: `examples/02-cluster/` (`config.yaml`, `install.sh`, `test-volume
    installs k3s at the version pinned in the script (official `get.k3s.io` script), waits for
    `Ready`, takes a `first` snapshot and writes `~/.kube/<machine>.yaml`. It never prints secrets.
    Rerun it after changing `config.yaml` (the installer restarts k3s).
-4. The user saves the server token (`ssh <user>@<machine> sudo cat /var/lib/rancher/k3s/server/token`)
-   and `~/.kube/<machine>.yaml` to their password manager. The token is needed to restore snapshots
+4. The user saves the server token (`ssh <user>@<machine> sudo cat /var/lib/rancher/k3s/server/token | pbcopy`)
+   and the kubeconfig (`pbcopy < ~/.kube/<machine>.yaml`) to their password manager, as secure notes. The token is needed to restore snapshots
    on a new host. Never run that command yourself.
 5. Laptop: add `export KUBECONFIG="$HOME/.kube/config:$HOME/.kube/<machine>.yaml"` to the shell
    startup file, then `kubectl config use-context <machine>`. Missing files in the list are skipped.

@@ -105,17 +105,28 @@ The reasoning behind each choice is in the [FAQ](/start-here/faq/#chapter-2--the
 
    You can rerun it safely, for example after changing `config.yaml`.
 
-4. **Save the server token** in your password manager, as "k3s server token (lab-1)". This
-   prints it so you can copy it:
+4. **Save the server token and the kubeconfig** in your password manager. Each command below
+   copies one to your clipboard without showing it on screen. Paste it into a new item, then run the
+   next one. Save each as a **secure note** (the kubeconfig is a few dozen lines, and many password
+   managers only attach files on paid plans):
+   - "k3s server token (lab-1)":
 
-   ```sh title="Laptop"
-   ssh ops@lab-1.home.example.com sudo cat /var/lib/rancher/k3s/server/token
-   ```
+     ```sh title="Laptop"
+     ssh ops@lab-1.home.example.com sudo cat /var/lib/rancher/k3s/server/token | pbcopy
+     ```
+
+   - "k3s kubeconfig (lab-1)":
+
+     ```sh title="Laptop"
+     pbcopy < ~/.kube/lab-1.yaml
+     ```
+
+   `pbcopy` is macOS. On Linux use `wl-copy` (Wayland) or `xclip -selection clipboard` (X11).
+   To get the kubeconfig back on a new laptop, copy the note and run
+   `pbpaste > ~/.kube/lab-1.yaml && chmod 600 ~/.kube/lab-1.yaml`.
 
    <Aside type="caution">Without this token, the snapshots can't be restored on a new machine.
    It's also the key that lets other machines join the cluster, so keep it secret.</Aside>
-
-   Store a copy of `~/.kube/lab-1.yaml` there too.
 
 5. **Point kubectl at the cluster.** `KUBECONFIG` lists the files kubectl, k9s and helm read.
    Adding the new file to it keeps any clusters you already have, and a file that doesn't exist is

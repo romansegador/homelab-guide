@@ -112,18 +112,29 @@ El razonamiento detrás de cada elección está en las [preguntas frecuentes](/e
 
    Puedes volver a ejecutarlo sin problema, por ejemplo después de cambiar `config.yaml`.
 
-4. **Guarda el token del servidor** en tu gestor de contraseñas, como «k3s server token (lab-1)».
-   Esto lo muestra para que puedas copiarlo:
+4. **Guarda el token del servidor y el kubeconfig** en tu gestor de contraseñas. Cada comando de
+   abajo copia uno al portapapeles sin mostrarlo en pantalla. Pégalo en un elemento nuevo y después
+   ejecuta el siguiente. Guarda cada uno como **nota segura** (el kubeconfig ocupa unas decenas de
+   líneas, y muchos gestores de contraseñas solo adjuntan ficheros en sus planes de pago):
+   - «k3s server token (lab-1)»:
 
-   ```sh title="Portátil"
-   ssh ops@lab-1.home.example.com sudo cat /var/lib/rancher/k3s/server/token
-   ```
+     ```sh title="Portátil"
+     ssh ops@lab-1.home.example.com sudo cat /var/lib/rancher/k3s/server/token | pbcopy
+     ```
+
+   - «k3s kubeconfig (lab-1)»:
+
+     ```sh title="Portátil"
+     pbcopy < ~/.kube/lab-1.yaml
+     ```
+
+   `pbcopy` es de macOS. En Linux usa `wl-copy` (Wayland) o `xclip -selection clipboard` (X11).
+   Para recuperar el kubeconfig en un portátil nuevo, copia la nota y ejecuta
+   `pbpaste > ~/.kube/lab-1.yaml && chmod 600 ~/.kube/lab-1.yaml`.
 
    <Aside type="caution">Sin este token, las instantáneas no se pueden restaurar en una máquina
    nueva. También es la llave que permite a otras máquinas unirse al clúster, así que guárdalo en
    secreto.</Aside>
-
-   Guarda allí también una copia de `~/.kube/lab-1.yaml`.
 
 5. **Apunta kubectl al clúster.** `KUBECONFIG` lista los ficheros que leen kubectl, k9s y helm.
    Añadir el nuevo fichero conserva los clústeres que ya tengas, y un fichero que no existe se
