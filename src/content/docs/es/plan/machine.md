@@ -17,7 +17,7 @@ ves un error, abre un issue o un PR.
 | Disco del sistema | 40 GB | 30 GB | Solo el sistema operativo y los binarios de k3s |
 | Disco de datos | 100 GB | 50 GB | Imágenes de contenedores, volúmenes persistentes, logs. **Un disco aparte** |
 | Red | IP estática en tu red local | — | Por ejemplo `192.168.10.50` |
-| Sistema operativo | Ubuntu Server 24.04 LTS o Debian 13 | — | Sirve cualquier distribución moderna con systemd |
+| Sistema operativo | Ubuntu Server 26.04 LTS o Debian 13 | — | Sirve cualquier distribución moderna con systemd |
 
 ### De dónde salen estas cifras
 Se basan en un homelab pequeño real: un proveedor de identidad, un proxy inverso, una base de

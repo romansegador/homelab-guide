@@ -4,8 +4,11 @@ resource "proxmox_download_file" "ubuntu" {
   datastore_id = var.files_datastore
   content_type = "import"
   url          = var.ubuntu_image_url
-  # The image is qcow2 inside; the extension tells Proxmox how to import it.
-  file_name = "noble-server-cloudimg-amd64.qcow2"
+  # Proxmox checks the download against the published checksum before using it.
+  checksum           = var.ubuntu_image_sha256
+  checksum_algorithm = "sha256"
+  # The image is qcow2 inside; the .qcow2 extension tells Proxmox how to import it.
+  file_name = replace(basename(var.ubuntu_image_url), ".img", ".qcow2")
 }
 
 # 2. The cloud-init user-data: what the VM does on its first boot.

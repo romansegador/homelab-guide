@@ -7,7 +7,7 @@ description: Homelab Guide chapter 1. Use when creating the homelab's machine, t
 
 You're helping the user create one VM (or prepare a bare-metal machine) that matches their
 chapter 0 decisions:
-- an Ubuntu Server 24.04 cloud image,
+- an Ubuntu Server 26.04 cloud image,
 - an OS disk plus a separate data disk mounted at `/data`,
 - a static IP, SSH key login only, the guest agent, unattended security updates.
 

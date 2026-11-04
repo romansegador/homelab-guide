@@ -6,7 +6,7 @@ description: Create the VM from an Ubuntu cloud image with cloud-init, either in
 import { Tabs, TabItem, Steps, Aside } from '@astrojs/starlight/components';
 
 You'll create the machine every later chapter runs on. At the end you'll have:
-- an Ubuntu Server 24.04 VM with your static IP,
+- an Ubuntu Server 26.04 VM with your static IP,
 - SSH login with your key only,
 - the Proxmox guest agent,
 - automatic security updates,
@@ -16,14 +16,14 @@ You'll create the machine every later chapter runs on. At the end you'll have:
 This chapter has an agent skill, `machine`. See [Use with an AI agent](/start-here/agents/).
 </Aside>
 
-**Tested with:** Proxmox VE 9.2, Ubuntu Server 24.04 LTS cloud image, OpenTofu 1.12, bpg/proxmox
+**Tested with:** Proxmox VE 9.2, Ubuntu Server 26.04 LTS cloud image, OpenTofu 1.12, bpg/proxmox
 provider 0.120.
 
 ## Two ideas first
 
 ### Cloud images and cloud-init
-You don't install the OS by hand. Ubuntu publishes **cloud images**: a ready-made, minimal disk
-with the OS already installed. What they lack is *your* configuration: your user, your SSH key,
+You don't install the OS by hand. Ubuntu publishes **cloud images**: a ready-made disk with
+**Ubuntu Server** already installed. No desktop, about 850 MB. What they lack is *your* configuration: your user, your SSH key,
 your IP.
 
 That's what **cloud-init** does. It runs on the VM's **first boot** and reads a small YAML file
@@ -175,8 +175,9 @@ Why it's done this way: see the [FAQ](/start-here/faq/#where-is-the-opentofu-sta
    *Content*, add **Import**, keeping everything already selected.
 
 2. **Download the Ubuntu cloud image.** Go to *your node → local → Import → Download from URL*:
-   - URL: `https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img`
-   - File name: `noble-server-cloudimg-amd64.qcow2` (the `.qcow2` extension matters)
+   - URL: `https://cloud-images.ubuntu.com/releases/resolute/release-20261016/ubuntu-26.04-server-cloudimg-amd64.img`
+   - File name: `ubuntu-26.04-server-cloudimg-amd64.qcow2` (the `.qcow2` extension matters)
+   - *Advanced*: Hash algorithm `SHA-256`, Checksum `5645d0318ad21f643ebb1ac4567514620e9893380b07b0201fda163baa5b7eb5` (from the `SHA256SUMS` file next to the image)
 
 3. **Create the VM** (*Create VM*, top right):
    - **General:** your hostname as the name, any free VM ID.
@@ -184,7 +185,7 @@ Why it's done this way: see the [FAQ](/start-here/faq/#where-is-the-opentofu-sta
    - **System:** Machine `q35`, SCSI controller *VirtIO SCSI single*, tick **Qemu Agent**.
    - **Disks:**
      - `scsi0`: storage `local-lvm`, **Import Storage** `local`, **Disk Image**
-       `noble-server-cloudimg-amd64.qcow2`, tick *Discard* and *SSD emulation*.
+       `ubuntu-26.04-server-cloudimg-amd64.qcow2`, tick *Discard* and *SSD emulation*.
      - Click **Add** for `scsi1`: storage `local-lvm`, size **100 GiB**, *Discard*, *SSD emulation*.
    - **CPU:** 6 cores, type `host`.
    - **Memory:** 16384 MiB.
@@ -242,7 +243,7 @@ Why it's done this way: see the [FAQ](/start-here/faq/#where-is-the-opentofu-sta
 </Tabs>
 
 <Aside type="note" title="Bare metal instead of a VM?">
-Install Ubuntu Server 24.04 from the ISO, give it your static IP, and import your SSH key from the
+Install Ubuntu Server 26.04 from the ISO, give it your static IP, and import your SSH key from the
 installer. Then follow step 8 of the web UI tab to format and mount the data disk, using the device
 name `lsblk` shows. You can skip the guest agent.
 </Aside>

@@ -71,10 +71,19 @@ variable "data_disk_gb" {
   default = 100
 }
 
+# Ubuntu Server 26.04 LTS cloud image, pinned to a dated build so a plan never changes under you.
+# To move to a newer build: pick a release-YYYYMMDD folder from
+# https://cloud-images.ubuntu.com/releases/resolute/ and copy the image's line from its SHA256SUMS.
 variable "ubuntu_image_url" {
-  description = "Ubuntu cloud image to boot from"
+  description = "Ubuntu Server cloud image to boot from (a dated build, not 'current')"
   type        = string
-  default     = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
+  default     = "https://cloud-images.ubuntu.com/releases/resolute/release-20261016/ubuntu-26.04-server-cloudimg-amd64.img"
+}
+
+variable "ubuntu_image_sha256" {
+  description = "SHA-256 of that image, from the SHA256SUMS file in the same folder"
+  type        = string
+  default     = "5645d0318ad21f643ebb1ac4567514620e9893380b07b0201fda163baa5b7eb5"
 }
 
 # ---- Network and access ---------------------------------------------------------------

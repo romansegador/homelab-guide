@@ -11,7 +11,7 @@ ves un error, abre un issue o un PR.
 :::
 
 Vas a crear la máquina sobre la que corren todos los capítulos siguientes. Al terminar tendrás:
-- una VM con Ubuntu Server 24.04 y tu IP estática,
+- una VM con Ubuntu Server 26.04 y tu IP estática,
 - acceso SSH solo con tu clave,
 - el agente invitado de Proxmox,
 - actualizaciones de seguridad automáticas,
@@ -21,14 +21,14 @@ Vas a crear la máquina sobre la que corren todos los capítulos siguientes. Al 
 Este capítulo tiene una skill para agentes, `machine`. Consulta [Usar con un agente de IA](/es/start-here/agents/).
 </Aside>
 
-**Probado con:** Proxmox VE 9.2, imagen cloud de Ubuntu Server 24.04 LTS, OpenTofu 1.12, proveedor
+**Probado con:** Proxmox VE 9.2, imagen cloud de Ubuntu Server 26.04 LTS, OpenTofu 1.12, proveedor
 bpg/proxmox 0.120.
 
 ## Antes, dos ideas
 
 ### Imágenes cloud y cloud-init
-No instalas el sistema operativo a mano. Ubuntu publica **imágenes cloud**: un disco mínimo y listo
-para usar, con el sistema ya instalado. Lo que les falta es *tu* configuración: tu usuario, tu clave
+No instalas el sistema operativo a mano. Ubuntu publica **imágenes cloud**: un disco listo para usar
+con **Ubuntu Server** ya instalado. Sin escritorio, unos 850 MB. Lo que les falta es *tu* configuración: tu usuario, tu clave
 SSH, tu IP.
 
 Eso es lo que hace **cloud-init**. Se ejecuta en el **primer arranque** de la VM y lee un pequeño
@@ -186,8 +186,9 @@ Cualquier equipo con el repositorio, los cuatro secretos y acceso de red a Proxm
    En *Content*, añade **Import**, conservando todo lo que ya estaba seleccionado.
 
 2. **Descarga la imagen cloud de Ubuntu.** Ve a *tu nodo → local → Import → Download from URL*:
-   - URL: `https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img`
-   - File name: `noble-server-cloudimg-amd64.qcow2` (la extensión `.qcow2` importa)
+   - URL: `https://cloud-images.ubuntu.com/releases/resolute/release-20261016/ubuntu-26.04-server-cloudimg-amd64.img`
+   - File name: `ubuntu-26.04-server-cloudimg-amd64.qcow2` (la extensión `.qcow2` importa)
+   - *Advanced*: Hash algorithm `SHA-256`, Checksum `5645d0318ad21f643ebb1ac4567514620e9893380b07b0201fda163baa5b7eb5` (del fichero `SHA256SUMS` junto a la imagen)
 
 3. **Crea la VM** (*Create VM*, arriba a la derecha):
    - **General:** tu nombre de máquina como nombre, cualquier ID de VM libre.
@@ -195,7 +196,7 @@ Cualquier equipo con el repositorio, los cuatro secretos y acceso de red a Proxm
    - **System:** Machine `q35`, controlador SCSI *VirtIO SCSI single*, marca **Qemu Agent**.
    - **Disks:**
      - `scsi0`: almacenamiento `local-lvm`, **Import Storage** `local`, **Disk Image**
-       `noble-server-cloudimg-amd64.qcow2`, marca *Discard* y *SSD emulation*.
+       `ubuntu-26.04-server-cloudimg-amd64.qcow2`, marca *Discard* y *SSD emulation*.
      - Pulsa **Add** para `scsi1`: almacenamiento `local-lvm`, tamaño **100 GiB**, *Discard*, *SSD emulation*.
    - **CPU:** 6 núcleos, tipo `host`.
    - **Memory:** 16384 MiB.
@@ -254,7 +255,7 @@ Cualquier equipo con el repositorio, los cuatro secretos y acceso de red a Proxm
 </Tabs>
 
 <Aside type="note" title="¿Equipo físico en lugar de una VM?">
-Instala Ubuntu Server 24.04 desde la ISO, dale tu IP estática e importa tu clave SSH desde el
+Instala Ubuntu Server 26.04 desde la ISO, dale tu IP estática e importa tu clave SSH desde el
 instalador. Después sigue el paso 8 de la pestaña de la interfaz web para formatear y montar el
 disco de datos, con el nombre de dispositivo que muestre `lsblk`. Puedes saltarte el agente invitado.
 </Aside>

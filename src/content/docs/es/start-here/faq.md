@@ -27,6 +27,22 @@ la [hoja de ruta](/es/start-here/roadmap/).
 
 ## Capítulo 1 · La máquina
 
+### ¿Qué imagen de Ubuntu, y por qué la 26.04?
+La **imagen cloud de Ubuntu Server**: Ubuntu Server ya instalado en un disco, sin escritorio, hecha
+para VMs que se configuran con cloud-init. Es lo que arrancan los proveedores cloud. Existen
+imágenes *minimal* aún más pequeñas, pero quitan herramientas que querrás cuando algo falle.
+
+**26.04 LTS** porque, para una máquina nueva, la LTS más reciente da el soporte más largo
+(actualizaciones de seguridad estándar hasta 2031, frente a 2029 de la 24.04). Esperar a la primera
+versión de mantenimiento (26.04.1) deja que se corrijan los primeros errores. k3s incluye la 26.04
+entre sus sistemas soportados. Elige la 24.04 si algún software del que dependes aún no soporta la
+26.04.
+
+El ejemplo **fija una compilación con fecha** (`release-YYYYMMDD`) con su SHA-256, en lugar del
+enlace móvil `current`. Así la imagen solo cambia cuando tú la cambias, y Proxmox verifica la
+descarga. Las actualizaciones de seguridad siguen llegando: cloud-init actualiza todos los paquetes
+en el primer arranque, y las actualizaciones desatendidas lo siguen haciendo.
+
 ### ¿Por qué OpenTofu y no Terraform?
 Son casi la misma herramienta. En agosto de 2023, HashiCorp cambió la licencia de Terraform de una
 de código abierto (MPL) a una de «código disponible» (la Business Source License). La comunidad

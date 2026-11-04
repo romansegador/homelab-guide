@@ -21,6 +21,21 @@ alternative works with the same files, the chapter says so. Terraform is one exa
 
 ## Chapter 1 · The machine
 
+### Which Ubuntu image, and why 26.04?
+The **Ubuntu Server cloud image**: Ubuntu Server already installed on a disk, with no desktop,
+built for VMs that are configured by cloud-init. It's what cloud providers boot. The even smaller
+*minimal* cloud images exist, but they drop tools you'll want when something goes wrong.
+
+**26.04 LTS** because, for a new machine, the newest LTS gives the longest support (standard
+security updates until 2031, versus 2029 for 24.04). Waiting for the first point release (26.04.1)
+lets early bugs get fixed. k3s lists 26.04 as a supported OS. Pick 24.04 instead if software you
+depend on doesn't support 26.04 yet.
+
+The example **pins a dated build** (`release-YYYYMMDD`) with its SHA-256, instead of the moving
+`current` link. Then the image only changes when you change it, and Proxmox verifies the download.
+Security updates still arrive: cloud-init upgrades all packages on first boot, and unattended
+upgrades keep doing it.
+
 ### Why OpenTofu and not Terraform?
 They're nearly the same tool. In August 2023 HashiCorp moved Terraform from an open-source licence
 (MPL) to a "source-available" one (the Business Source License). The community forked the last

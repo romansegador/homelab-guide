@@ -12,7 +12,7 @@ description: How much CPU, memory and disk you need, and why the data gets its o
 | OS disk | 40 GB | 30 GB | OS and k3s binaries only |
 | Data disk | 100 GB | 50 GB | Container images, persistent volumes, logs. **A separate disk** |
 | Network | Static IP on your LAN | — | For example `192.168.10.50` |
-| OS | Ubuntu Server 24.04 LTS or Debian 13 | — | Any modern systemd distribution works |
+| OS | Ubuntu Server 26.04 LTS or Debian 13 | — | Any modern systemd distribution works |
 
 ### Where these numbers come from
 They're based on a real small homelab: an identity provider, a reverse proxy, a Postgres

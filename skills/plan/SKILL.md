@@ -45,7 +45,7 @@ Write `homelab-decisions.md` in a location the user chooses:
 ```markdown
 # Homelab decisions
 - Machine: <VM on Proxmox node X | bare metal>, <cpu> vCPU, <ram> GB, OS disk <n> GB, data disk <n> GB
-- OS: <Ubuntu Server 24.04 LTS | Debian 13>
+- OS: <Ubuntu Server 26.04 LTS | Debian 13>
 - Hostname: <name>   IP: <ip/cidr>   Gateway: <ip>   LAN DNS: <ip>
 - Domain: <example.com> at <DNS provider>
 - Private subdomain: <lab.home.example.com>   Wildcard record: *.<sub> -> <machine ip>
