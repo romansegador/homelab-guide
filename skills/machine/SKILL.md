@@ -58,13 +58,18 @@ Setup (once, guide page `/machine/opentofu-setup/`):
 4. State bucket: Cloudflare R2 (or any S3-compatible storage, but not one hosted on the homelab), with
    an access key scoped to that bucket only. The user creates it and keeps the keys.
 5. State passphrase (16+ characters): the user generates it in their password manager.
+6. If the user's SSH key lives in a password manager (Bitwarden/1Password SSH agent): `SSH_AUTH_SOCK`
+   must point at its socket, and the public key must be saved to a file (`ssh-add -L > ~/.ssh/homelab.pub`)
+   for `ssh_public_key_file`.
+7. Finish with the "Where you are now" checklist on the setup page before moving on.
 
 Create the VM (guide page `/machine/create/`, OpenTofu tab):
 1. Enable the `snippets` and `import` content types on the image storage, keeping the existing types.
 2. Copy `examples/01-machine/opentofu/` to the user's private infra repo. Fill `terraform.tfvars`
    and `backend.hcl` from their `.example` files.
-3. The user exports the four secrets in their shell. Then run `tofu init -backend-config=backend.hcl`
-   and `tofu plan`. Walk the user through the plan (expect 3 to add). Apply only after their OK.
+3. The user loads the four secrets with `source ./load-secrets.sh` (hidden prompts, in their own
+   terminal; it reports each variable as `set`/`EMPTY`, never the value). Then run
+   `tofu init -backend-config=backend.hcl` and `tofu plan`. Walk the user through the plan (expect 3 to add). Apply only after their OK.
 4. Confirm the bucket holds `machine/terraform.tfstate`, and that it's encrypted (an
    `encrypted_data` field, no readable resources).
 

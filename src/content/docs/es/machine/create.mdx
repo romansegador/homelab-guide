@@ -60,7 +60,9 @@ la misma idea que el capítulo de GitOps, aplicada a la propia máquina.
 - [ ] Tus decisiones del capítulo 0: nombre, IP/CIDR, puerta de enlace, servidor DNS, tamaños.
 - [ ] Proxmox VE **8.4 o posterior** (`pveversion` en el host). Este capítulo usa el tipo de
       contenido *import* que introdujo la 8.4.
-- [ ] Un par de claves SSH en tu portátil (`ls ~/.ssh/id_ed25519.pub`; créalo con `ssh-keygen -t ed25519`).
+- [ ] Un par de claves SSH, con la clave pública en un fichero (`ls ~/.ssh/id_ed25519.pub`; créalo
+      con `ssh-keygen -t ed25519`). Si tu clave vive en un gestor de contraseñas, consulta la nota
+      de [Preparar OpenTofu](/es/machine/opentofu-setup/).
 - [ ] Los nombres de tu nodo de Proxmox (`pvesh get /nodes`), del almacenamiento de VMs (a menudo
       `local-lvm`), del almacenamiento de directorio (a menudo `local`) y del puente de red (a
       menudo `vmbr0`).
@@ -73,7 +75,8 @@ la misma idea que el capítulo de GitOps, aplicada a la propia máquina.
 <Steps>
 
 1. **Haz antes [Preparar OpenTofu](/es/machine/opentofu-setup/).** Necesitas el token de API, el
-   usuario SSH restringido, el bucket del estado y la frase de paso de esa página.
+   usuario SSH restringido, el bucket del estado y la frase de paso de esa página. Su
+   [última sección](/es/machine/opentofu-setup/#dónde-estás-ahora) es una lista de comprobación.
 
 2. **Permite que Proxmox guarde imágenes y snippets.** En el host de Proxmox, mira qué guarda ya el
    almacenamiento `local`:
@@ -92,8 +95,20 @@ la misma idea que el capítulo de GitOps, aplicada a la propia máquina.
    <Aside type="caution">`--content` **sustituye** la lista. Si dejas fuera un tipo que ya estaba,
    Proxmox deja de mostrar ese contenido.</Aside>
 
-3. **Copia el ejemplo** a tu repositorio de infraestructura **privado**:
-   [`examples/01-machine/opentofu`](https://github.com/romansegador/homelab-guide/tree/main/examples/01-machine/opentofu).
+3. **Pon el código del ejemplo en tu repositorio privado.** Es el repositorio git donde vive tu
+   infraestructura (el capítulo 3 le añade la configuración del clúster). Si aún no tienes uno,
+   crea en GitHub un repositorio **privado** vacío y clónalo. Después copia el ejemplo
+   [`examples/01-machine/opentofu`](https://github.com/romansegador/homelab-guide/tree/main/examples/01-machine/opentofu)
+   en una carpeta propia, por ejemplo `infra/proxmox/`:
+
+   ```sh title="Portátil"
+   git clone --depth 1 https://github.com/romansegador/homelab-guide.git /tmp/homelab-guide
+   mkdir -p <YOUR_REPO>/infra
+   cp -R /tmp/homelab-guide/examples/01-machine/opentofu <YOUR_REPO>/infra/proxmox
+   cd <YOUR_REPO>/infra/proxmox
+   ```
+
+   Todos los comandos a partir de aquí se ejecutan **dentro de esa carpeta**.
 
    | Fichero | Qué contiene |
    |---|---|
@@ -104,6 +119,7 @@ la misma idea que el capítulo de GitOps, aplicada a la propia máquina.
    | `main.tf` | La descarga de la imagen, el fichero de cloud-init y la VM |
    | `cloud-init/user-data.yaml.tftpl` | Lo que hace la VM en el primer arranque |
    | `terraform.tfvars.example` | Tus valores van en una copia de este fichero |
+   | `load-secrets.sh` | Carga los cuatro secretos en tu terminal (pasos siguientes) |
 
 4. **Rellena tus valores.** Copia los dos ficheros de ejemplo y edítalos: `terraform.tfvars` lleva
    tus nombres de máquina, IPs y tamaños, y `backend.hcl` el nombre y el endpoint de tu bucket.
@@ -117,14 +133,22 @@ la misma idea que el capítulo de GitOps, aplicada a la propia máquina.
    Así una reconstrucción no depende de tu portátil. Los secretos se quedan en tu terminal (paso
    siguiente).
 
-5. **Planifica.** Exporta los cuatro secretos solo en esta terminal (ver el
-   [paso 6 de la preparación](/es/machine/opentofu-setup/)) y pregunta a OpenTofu qué haría:
+5. **Carga los secretos.** Ejecuta el script con `source`, para que los valores se queden en tu
+   terminal. Pega cada valor desde tu gestor de contraseñas cuando te lo pida. No se muestra en
+   pantalla:
 
    ```sh title="Portátil"
-   export PROXMOX_VE_API_TOKEN='tofu@pve!provider=<token secret>'
-   export AWS_ACCESS_KEY_ID='<bucket access key id>'
-   export AWS_SECRET_ACCESS_KEY='<bucket secret access key>'
-   export TF_VAR_state_passphrase='<state passphrase>'
+   source ./load-secrets.sh
+   ```
+
+   Al final lista las cuatro variables como `set`. Si alguna aparece como `EMPTY`, pulsaste Enter
+   sin pegar nada: vuelve a ejecutarlo. Si pegas solo el secreto del token, el script añade por ti
+   el id de token por defecto, `tofu@pve!provider`.
+
+6. **Planifica.** Conecta OpenTofu con tu bucket (`init`, una vez por carpeta) y pregúntale qué
+   haría:
+
+   ```sh title="Portátil"
    tofu init -backend-config=backend.hcl
    tofu plan
    ```
@@ -132,7 +156,7 @@ la misma idea que el capítulo de GitOps, aplicada a la propia máquina.
    Lee el plan. Debe indicar **3 to add, 0 to change, 0 to destroy**: la descarga de la imagen, el
    fichero user-data y la VM.
 
-6. **Aplica.**
+7. **Aplica.**
 
    ```sh title="Portátil"
    tofu apply
@@ -141,7 +165,7 @@ la misma idea que el capítulo de GitOps, aplicada a la propia máquina.
    Escribe `yes` cuando te lo pida. La descarga de la imagen tarda un minuto. Después la VM arranca
    y cloud-init se ejecuta, lo que lleva otros 2–4 minutos mientras instala actualizaciones.
 
-7. **Comprueba que el estado ha llegado al bucket, cifrado.** Es el objeto
+8. **Comprueba que el estado ha llegado al bucket, cifrado.** Es el objeto
    `machine/terraform.tfstate`. Su contenido es un bloque `encrypted_data`, no un JSON legible.
 
 </Steps>

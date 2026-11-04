@@ -53,7 +53,9 @@ same idea as the GitOps chapter, applied to the machine itself.
 - [ ] Your chapter 0 decisions: hostname, IP/CIDR, gateway, DNS server, sizes.
 - [ ] Proxmox VE **8.4 or newer** (`pveversion` on the host). This chapter uses the *import*
       storage content type that 8.4 introduced.
-- [ ] An SSH key pair on your laptop (`ls ~/.ssh/id_ed25519.pub`; create one with `ssh-keygen -t ed25519`).
+- [ ] An SSH key pair, with the public key in a file (`ls ~/.ssh/id_ed25519.pub`; create one with
+      `ssh-keygen -t ed25519`). If your key lives in a password manager, see the note in
+      [Set up OpenTofu](/machine/opentofu-setup/).
 - [ ] The names of your Proxmox node (`pvesh get /nodes`), VM storage (often `local-lvm`),
       directory storage (often `local`) and network bridge (often `vmbr0`).
 
@@ -65,7 +67,8 @@ same idea as the GitOps chapter, applied to the machine itself.
 <Steps>
 
 1. **Do [Set up OpenTofu](/machine/opentofu-setup/) first.** You need the API token, the
-   restricted SSH user, the state bucket and the passphrase from that page.
+   restricted SSH user, the state bucket and the passphrase from that page. Its
+   [last section](/machine/opentofu-setup/#where-you-are-now) is a checklist.
 
 2. **Let Proxmox store images and snippets.** On the Proxmox host, look at what the `local` storage
    already holds:
@@ -84,8 +87,20 @@ same idea as the GitOps chapter, applied to the machine itself.
    <Aside type="caution">`--content` **replaces** the list. If you leave out a type that was there,
    Proxmox stops showing that content.</Aside>
 
-3. **Copy the example** into your **private** infrastructure repository:
-   [`examples/01-machine/opentofu`](https://github.com/romansegador/homelab-guide/tree/main/examples/01-machine/opentofu).
+3. **Put the example code in your private repository.** This is the git repository where your
+   infrastructure lives (chapter 3 adds the cluster's configuration to it). If you don't have one
+   yet, create an empty **private** repository on GitHub and clone it. Then copy the example
+   [`examples/01-machine/opentofu`](https://github.com/romansegador/homelab-guide/tree/main/examples/01-machine/opentofu)
+   into a folder of its own, for example `infra/proxmox/`:
+
+   ```sh title="Laptop"
+   git clone --depth 1 https://github.com/romansegador/homelab-guide.git /tmp/homelab-guide
+   mkdir -p <YOUR_REPO>/infra
+   cp -R /tmp/homelab-guide/examples/01-machine/opentofu <YOUR_REPO>/infra/proxmox
+   cd <YOUR_REPO>/infra/proxmox
+   ```
+
+   Every command from here on runs **inside that folder**.
 
    | File | What it holds |
    |---|---|
@@ -96,6 +111,7 @@ same idea as the GitOps chapter, applied to the machine itself.
    | `main.tf` | The image download, the cloud-init file and the VM |
    | `cloud-init/user-data.yaml.tftpl` | What the VM does on first boot |
    | `terraform.tfvars.example` | Your values go in a copy of this file |
+   | `load-secrets.sh` | Loads the four secrets into your terminal (next steps) |
 
 4. **Fill in your values.** Copy the two example files, then edit them: `terraform.tfvars` takes
    your hostnames, IPs and sizes, `backend.hcl` your bucket name and endpoint.
@@ -108,14 +124,21 @@ same idea as the GitOps chapter, applied to the machine itself.
    Neither file holds a secret, so commit both to your **private** repository. That way a rebuild
    doesn't depend on your laptop. Secrets stay in your shell (next step).
 
-5. **Plan.** Export the four secrets in this shell only (see
-   [step 6 of the setup](/machine/opentofu-setup/)), then ask OpenTofu what it would do:
+5. **Load the secrets.** Run the script with `source`, so the values stay in your terminal. Paste
+   each value from your password manager when it asks. The input is hidden:
 
    ```sh title="Laptop"
-   export PROXMOX_VE_API_TOKEN='tofu@pve!provider=<token secret>'
-   export AWS_ACCESS_KEY_ID='<bucket access key id>'
-   export AWS_SECRET_ACCESS_KEY='<bucket secret access key>'
-   export TF_VAR_state_passphrase='<state passphrase>'
+   source ./load-secrets.sh
+   ```
+
+   It ends by listing the four variables as `set`. One that shows `EMPTY` means you pressed Enter
+   without pasting: run it again. If you paste only the token's secret, the script adds the default
+   token id `tofu@pve!provider` for you.
+
+6. **Plan.** Connect OpenTofu to your bucket (`init`, needed once per folder), then ask it what it
+   would do:
+
+   ```sh title="Laptop"
    tofu init -backend-config=backend.hcl
    tofu plan
    ```
@@ -123,7 +146,7 @@ same idea as the GitOps chapter, applied to the machine itself.
    Read the plan. It should list **3 to add, 0 to change, 0 to destroy**: the image download, the
    user-data file and the VM.
 
-6. **Apply.**
+7. **Apply.**
 
    ```sh title="Laptop"
    tofu apply
@@ -132,7 +155,7 @@ same idea as the GitOps chapter, applied to the machine itself.
    Type `yes` when asked. The image download takes a minute. The VM then boots and cloud-init runs,
    which takes another 2–4 minutes while it installs updates.
 
-7. **Check the state landed in the bucket, encrypted.** It's the object
+8. **Check the state landed in the bucket, encrypted.** It's the object
    `machine/terraform.tfstate`. Its contents are an `encrypted_data` blob, not readable JSON.
 
 </Steps>

@@ -53,7 +53,9 @@ never sees your token, keys or passphrase: you create and export those yourself.
    pveum user token add tofu@pve provider --privsep 0
    ```
 
-   The last command prints the token secret **once**. Store it in your password manager now.
+   The last command prints the token secret **once**. Store it in your password manager now,
+   together with its **token id**, `tofu@pve!provider`. OpenTofu needs both, in the form
+   `tofu@pve!provider=<secret>`.
 
    <Aside>If a later `tofu apply` fails with `Permission check failed (…, <PRIVILEGE>)`, add that
    privilege with `pveum role modify TofuProvisioner -append 1 -privs <PRIVILEGE>`. Privilege names
@@ -63,8 +65,9 @@ never sees your token, keys or passphrase: you create and export those yourself.
    because the Proxmox API can't upload "snippets". This Linux user can do **only** that: it may run
    two exact commands as root, and nothing else. (It's unrelated to the `tofu@pve` API user above.)
 
-   Replace `<YOUR_SSH_PUBLIC_KEY>` with the contents of your `~/.ssh/id_ed25519.pub`. The first
-   command installs `sudo`, which Proxmox doesn't ship:
+   Replace `<YOUR_SSH_PUBLIC_KEY>` with your **public** key: the contents of `~/.ssh/id_ed25519.pub`,
+   or the *Public key* field if your key lives in a password manager (see the note below). The
+   first command installs `sudo`, which Proxmox doesn't ship:
 
    ```sh title="Proxmox host"
    apt install -y sudo
@@ -90,6 +93,20 @@ never sees your token, keys or passphrase: you create and export those yourself.
    ssh-add -l
    ssh tofu@proxmox.home.example.com sudo pvesm apiinfo
    ```
+
+   <Aside title="SSH key in a password manager?">
+   Some password managers (Bitwarden, 1Password) keep the private key in the vault and act as your
+   SSH agent, so the key never sits on disk. Enable the agent in the desktop app, point
+   `SSH_AUTH_SOCK` at the socket its documentation gives, and check with `ssh-add -l`. The VM's
+   setup in the next page reads your public key from a **file**, so save the public half too:
+
+   ```sh title="Laptop"
+   ssh-add -L > ~/.ssh/homelab.pub
+   ```
+
+   If `ssh-add -L` lists several keys, keep only the right line in that file. A public key isn't
+   secret.
+   </Aside>
 
    <Aside type="caution">Never widen these rules to the whole `pvesm` or `qm` commands, or to
    `tee` with a `*`. Each of those is as good as root.</Aside>
@@ -132,19 +149,33 @@ never sees your token, keys or passphrase: you create and export those yourself.
    longer knows it manages the VM, and you'd have to import it back by hand. Keep the passphrase
    in your password manager, not only in your head.</Aside>
 
-6. **Know how you'll load the secrets.** Every time you run `tofu`, the shell needs the four
-   values as environment variables. Type or paste them, or load them from your password manager's
-   CLI. Never write them into a file in the repository:
-
-   ```sh title="Laptop"
-   export PROXMOX_VE_API_TOKEN='tofu@pve!provider=<token secret>'
-   export AWS_ACCESS_KEY_ID='<bucket access key id>'
-   export AWS_SECRET_ACCESS_KEY='<bucket secret access key>'
-   export TF_VAR_state_passphrase='<state passphrase>'
-   ```
-
-   They last until you close that terminal.
-
 </Steps>
 
-Next: [Create the machine](/machine/create/), OpenTofu tab.
+## How the secrets reach OpenTofu
+
+You don't put the four secrets in any file. Each time you work with OpenTofu, you load them into
+the terminal with `load-secrets.sh`, a small script in the example folder. It asks for each value
+with hidden input. You paste each one from your password manager, and it exports them as the
+environment variables OpenTofu reads:
+
+| Prompt | Variable | Read by |
+|---|---|---|
+| Proxmox API token | `PROXMOX_VE_API_TOKEN` | The Proxmox provider |
+| State bucket: Access Key ID | `AWS_ACCESS_KEY_ID` | The S3 backend |
+| State bucket: Secret Access Key | `AWS_SECRET_ACCESS_KEY` | The S3 backend |
+| State passphrase | `TF_VAR_state_passphrase` | State encryption |
+
+Nothing is written to disk or to your shell history, and the values disappear when you close the
+terminal. You'll run it in the next page.
+
+## Where you are now
+
+- [x] OpenTofu installed.
+- [x] Four secrets in your password manager: the Proxmox API token, the bucket's two access keys
+      and the state passphrase.
+- [x] `ssh tofu@<proxmox-host> sudo pvesm apiinfo` prints `APIVER` with no password prompt.
+- [x] Your public key in a file on your laptop.
+
+Nothing exists on Proxmox yet apart from the users. **Next:** [Create the machine](/machine/create/),
+OpenTofu tab. There you put the example code in your repository, fill in your values, load the
+secrets and run `tofu plan`.
