@@ -301,9 +301,28 @@ ssh ops@192.168.10.50 findmnt /data
 ## Before you move on
 
 - [ ] All the checks pass, including after the reboot.
-- [ ] Take a first **backup or snapshot** of the VM in Proxmox. It's your "clean machine" restore point.
+- [ ] Take a first **backup** of the VM (below). It's your "clean machine" restore point.
 - [ ] If you used OpenTofu, commit the folder to your private repository, including
       `terraform.tfvars` and `backend.hcl`, but never a secret. The `.gitignore` keeps out
       `.terraform/` and any local state or plan files.
+
+## Take a first backup
+
+A backup is a full copy of the VM in a file. Put it on storage **outside the machine's own disk**,
+for example a NAS added to Proxmox as backup storage. A copy on the same disk is lost along with it.
+
+In the web UI: select the VM, then *Backup → Backup now*:
+- **Storage:** your backup storage.
+- **Mode:** *Snapshot*. The VM keeps running.
+- **Compression:** *ZSTD*.
+- **Notes:** something like `clean machine, chapter 1`.
+
+Or from the Proxmox host, with your VM id and storage name:
+
+```sh title="Proxmox host"
+vzdump <VMID> --storage <YOUR_BACKUP_STORAGE> --mode snapshot --compress zstd --notes-template "{{guestname}}: clean machine, chapter 1"
+```
+
+It takes a minute or two. The backup then shows up under the VM's *Backup* tab.
 
 Next: the cluster.

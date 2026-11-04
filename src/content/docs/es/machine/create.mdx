@@ -313,10 +313,30 @@ ssh ops@192.168.10.50 findmnt /data
 ## Antes de seguir
 
 - [ ] Todas las comprobaciones pasan, también después de reiniciar.
-- [ ] Haz una primera **copia de seguridad o instantánea** de la VM en Proxmox. Es tu punto de
-      restauración de «máquina limpia».
+- [ ] Haz una primera **copia de seguridad** de la VM (más abajo). Es tu punto de restauración de
+      «máquina limpia».
 - [ ] Si usaste OpenTofu, haz commit de la carpeta en tu repositorio privado, incluidos
       `terraform.tfvars` y `backend.hcl`, pero nunca un secreto. El `.gitignore` deja fuera
       `.terraform/` y cualquier fichero de estado o de plan local.
+
+## Haz una primera copia de seguridad
+
+Una copia de seguridad es una copia completa de la VM en un fichero. Guárdala en un almacenamiento
+**fuera del disco de la propia máquina**, por ejemplo un NAS añadido a Proxmox como almacenamiento
+de copias. Una copia en el mismo disco se pierde con él.
+
+En la interfaz web: selecciona la VM y luego *Backup → Backup now*:
+- **Storage:** tu almacenamiento de copias.
+- **Mode:** *Snapshot*. La VM sigue funcionando.
+- **Compression:** *ZSTD*.
+- **Notes:** algo como `clean machine, chapter 1`.
+
+O desde el host de Proxmox, con el id de tu VM y el nombre de tu almacenamiento:
+
+```sh title="Host de Proxmox"
+vzdump <VMID> --storage <YOUR_BACKUP_STORAGE> --mode snapshot --compress zstd --notes-template "{{guestname}}: clean machine, chapter 1"
+```
+
+Tarda uno o dos minutos. Después la copia aparece en la pestaña *Backup* de la VM.
 
 Siguiente: el clúster.
