@@ -4,7 +4,8 @@
 #   bash infra/k3s/install.sh ops@lab-1.home.example.com
 #
 # It runs four steps over SSH, and you can rerun it safely:
-#   1. copies config.yaml to /etc/rancher/k3s/config.yaml on the machine,
+#   1. copies config.yaml to /etc/rancher/k3s/config.yaml on the machine, and creates the
+#      etcd-snapshot-dir it names (k3s doesn't create a custom snapshot folder itself),
 #   2. installs k3s at the pinned version below, with the official install script,
 #   3. waits for the node to be Ready, and takes a first etcd snapshot,
 #   4. saves the kubeconfig as ~/.kube/<machine>.yaml, pointed at the machine's name.
@@ -25,6 +26,10 @@ kubeconfig="$HOME/.kube/$name.yaml"
 
 echo "1/4 Copying config.yaml to the machine"
 ssh "$target" 'sudo install -D -m 600 /dev/stdin /etc/rancher/k3s/config.yaml' < "$here/config.yaml"
+snapshot_dir="$(sed -n 's/^etcd-snapshot-dir:[[:space:]]*//p' "$here/config.yaml" | tr -d "\"'")"
+if [ -n "$snapshot_dir" ]; then
+  ssh "$target" "sudo install -d -m 700 '$snapshot_dir'"
+fi
 
 echo "2/4 Installing k3s $K3S_VERSION (about a minute)"
 ssh "$target" "curl -sfL https://get.k3s.io -o /tmp/install-k3s.sh \
@@ -38,7 +43,8 @@ ssh "$target" 'for i in $(seq 60); do
   done
   sudo k3s kubectl get nodes --no-headers | grep -qw Ready \
     || { echo "The node is not Ready after 5 minutes. Check: sudo journalctl -u k3s" >&2; exit 1; }
-  sudo k3s etcd-snapshot save --name first >/dev/null'
+  out=$(sudo k3s etcd-snapshot save --name first 2>&1) \
+    || { printf "%s\n" "$out" | grep -v "Unknown flag" >&2; exit 1; }'
 
 echo "4/4 Saving the kubeconfig as $kubeconfig"
 mkdir -p "$HOME/.kube"
