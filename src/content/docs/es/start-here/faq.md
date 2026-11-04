@@ -140,7 +140,7 @@ hacen los pasos.
 
 ### ¿Por qué etcd integrado y no SQLite, que es lo predeterminado?
 Para una máquina SQLite es más ligero, pero etcd aporta dos cosas que la guía quiere:
-- **instantáneas integradas**, programadas y con copias enviadas fuera de la máquina. Con SQLite
+- **instantáneas integradas**, programadas y con subida opcional a un bucket. Con SQLite
   tendrías que montarlo tú;
 - **margen para crecer**: más nodos *servidor* pueden unirse después a un clúster etcd. Con SQLite,
   las máquinas extra solo pueden unirse como trabajadoras.
@@ -148,12 +148,29 @@ Para una máquina SQLite es más ligero, pero etcd aporta dos cosas que la guía
 El coste es algo más de RAM (unos cientos de MB) y más escrituras en disco. En un SSD no es
 problema.
 
-### ¿Por qué las claves de las instantáneas van en un Secret de Kubernetes y no en el fichero de configuración?
-Para que el fichero de configuración no contenga credenciales y pueda vivir en git. k3s lee los
-datos del bucket de un Secret en `kube-system` cuando toma una instantánea. En el capítulo 4 ese
-Secret vendrá del gestor de secretos en lugar de un script. Un detalle: para **restaurar** en una
+### ¿Adónde van las instantáneas fuera de la máquina, y por qué no a un bucket?
+k3s escribe cada instantánea en el disco de datos. La guía las saca de la máquina con una **copia
+de seguridad nocturna de toda la VM** hecha por Proxmox, en un almacenamiento de copias que ya
+tienes, como un NAS. Así una sola tarea lo cubre todo: el sistema, los volúmenes de las aplicaciones
+en `/data` y las instantáneas, sin cuentas ni claves nuevas. La copia de la VM también copia los
+ficheros de etcd en uso, pero solo quedan como tras un corte de luz. Los ficheros de instantánea que
+van dentro son copias limpias de un momento concreto, y son los que restauras.
+
+| Opción | Veredicto |
+|---|---|
+| **Copia nocturna de la VM a un NAS** ✅ | Usa el almacenamiento que ya tienes y cubre toda la máquina. Como mucho se pierde un día de cambios, y la copia se queda en casa hasta que la envíes fuera. |
+| **k3s sube a un bucket S3** (R2, AWS S3…) | Fuera de casa cada 6 horas, sin depender de Proxmox. Una cuenta y unas claves más. El capítulo lo muestra como paso opcional. |
+| **Un servicio S3 en el NAS** (MinIO, Garage) | Instantáneas fuera de la máquina cada 6 horas, pero un servicio más que mantener. |
+
+k3s solo sube a almacenamiento **compatible con S3**. Un servicio de copias que habla SFTP o rsync
+(por ejemplo un Hetzner Storage Box) no puede recibir las instantáneas directamente. Es un buen
+sitio para una copia fuera de casa de tu almacenamiento de copias, y el capítulo de operación diaria
+lo trata.
+
+Si usas un bucket, sus claves van en un **Secret de Kubernetes**, no en `config.yaml`, para que el
+fichero de configuración no contenga credenciales y pueda vivir en git. Para **restaurar** en una
 máquina nueva todavía no hay clúster que guarde el Secret, así que pasas los datos del bucket por
-la línea de comandos. Están en tu gestor de contraseñas.
+la línea de comandos.
 
 ### ¿Por qué mantener Traefik, ServiceLB y local-path?
 Ya están ahí, funcionan y encajan con una sola máquina. Traefik es además lo que muchos montajes

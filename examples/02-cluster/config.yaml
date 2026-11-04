@@ -1,5 +1,5 @@
 # k3s server settings. Installed on the machine as /etc/rancher/k3s/config.yaml, read on every start.
-# No secrets in this file: the etcd snapshot bucket and its keys live in a Kubernetes Secret.
+# No secrets in this file.
 
 # Embedded etcd instead of SQLite: built-in snapshots, and room for more server nodes later.
 cluster-init: true
@@ -17,13 +17,15 @@ write-kubeconfig-mode: "0600"
 # App volumes (the built-in local-path storage) live on the data disk, not the OS disk.
 default-local-storage-path: /data/local-path
 
-# etcd snapshots: every 6 hours, compressed, the last 8 kept on the data disk (2 days)...
+# etcd snapshots: every 6 hours, compressed, the last 8 kept on the data disk (2 days). The
+# scheduled VM backup copies the data disk, snapshots included, to storage off the machine.
 etcd-snapshot-schedule-cron: "0 */6 * * *"
 etcd-snapshot-retention: 8
 etcd-snapshot-compress: true
 etcd-snapshot-dir: /data/etcd-snapshots
-# ...and copied off the machine to S3-compatible storage (the last 5 are kept there). Endpoint,
-# bucket and keys come from this Secret in kube-system; set no other etcd-s3 options here, or
-# k3s ignores the Secret.
-etcd-s3: true
-etcd-s3-config-secret: k3s-etcd-snapshot-s3-config
+
+# Optional: also upload each snapshot to an S3-compatible bucket (the last 5 are kept there).
+# See "Optional: snapshots to a bucket" in the chapter. Endpoint, bucket and keys come from this
+# Secret in kube-system; set no other etcd-s3 options here, or k3s ignores the Secret.
+# etcd-s3: true
+# etcd-s3-config-secret: k3s-etcd-snapshot-s3-config

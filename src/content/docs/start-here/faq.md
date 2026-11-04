@@ -128,19 +128,33 @@ and it hides the config. Either is a fine choice later, once you know what the s
 
 ### Why embedded etcd and not the default SQLite?
 For one machine SQLite is lighter, but etcd brings two things the guide wants:
-- **built-in snapshots**, scheduled, with copies sent off the machine. With SQLite you'd build
+- **built-in snapshots**, scheduled, with an optional upload to a bucket. With SQLite you'd build
   that yourself;
 - **room to grow**: more *server* nodes can join an etcd cluster later. With SQLite, extra
   machines can only join as workers.
 
 The cost is some extra RAM (a few hundred MB) and more disk writes. On an SSD that's fine.
 
-### Why do the snapshot keys go in a Kubernetes Secret, not in the config file?
-So the config file holds no credentials and can live in git. k3s reads the bucket details from a
-Secret in `kube-system` when it takes a snapshot. In chapter 4 that Secret will come from the
-secrets manager instead of a script. One catch: to **restore** onto a fresh machine, there's no
-cluster to hold the Secret yet, so you pass the bucket details on the command line. They're in
-your password manager.
+### Where do the snapshots go off the machine, and why not a bucket?
+k3s writes each snapshot to the data disk. The guide gets them off the machine with a **nightly
+Proxmox backup of the whole VM** to backup storage you already have, such as a NAS. One job then
+covers everything: the OS, the app volumes on `/data`, and the snapshots, with no new account or
+keys. The VM backup also copies the live etcd files, but those are only crash-consistent. The
+snapshot files inside it are clean, point-in-time copies, and they're what you restore from.
+
+| Option | Verdict |
+|---|---|
+| **Nightly VM backup to a NAS** ✅ | Uses storage you already have, and covers the whole machine. At most one day of changes is lost, and the copy stays in your home until you send it off-site. |
+| **k3s uploads to an S3 bucket** (R2, AWS S3…) | Off-site every 6 hours, independent of Proxmox. One more account and set of keys. The chapter shows it as an optional step. |
+| **An S3 service on the NAS** (MinIO, Garage) | Snapshots off the machine every 6 hours, but one more service to run. |
+
+k3s only uploads to **S3-compatible** storage. A backup service that speaks SFTP or rsync (for
+example a Hetzner Storage Box) can't receive snapshots directly. It's a good place for an
+off-site copy of your backup storage, which the Day 2 chapter covers.
+
+If you use a bucket, its keys go in a **Kubernetes Secret**, not in `config.yaml`, so the config
+file holds no credentials and can live in git. To **restore** onto a fresh machine there's no
+cluster to hold the Secret yet, so you pass the bucket details on the command line.
 
 ### Why keep Traefik, ServiceLB and local-path?
 They're already there, they work, and they fit one machine. Traefik is also what many Docker
