@@ -6,6 +6,8 @@
 bucket = "homelab-tofu-state"
 region = "auto"
 endpoints = {
+  # Copy the bucket's "S3 API" URL from its settings. EU-jurisdiction buckets have ".eu." in it:
+  # https://<YOUR_CLOUDFLARE_ACCOUNT_ID>.eu.r2.cloudflarestorage.com
   s3 = "https://<YOUR_CLOUDFLARE_ACCOUNT_ID>.r2.cloudflarestorage.com"
 }
 # R2 speaks the S3 API but isn't AWS: skip the AWS-only checks.

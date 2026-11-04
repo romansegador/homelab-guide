@@ -126,8 +126,9 @@ never sees your token, keys or passphrase: you create and export those yourself.
       - Scope: **Apply to specific buckets only**, and pick `homelab-tofu-state`.
    3. Cloudflare shows an **Access Key ID** and a **Secret Access Key** once. Store both in your
       password manager.
-   4. Note your **account ID**. It's part of the S3 endpoint shown in the bucket's settings:
-      `https://<YOUR_CLOUDFLARE_ACCOUNT_ID>.r2.cloudflarestorage.com`. It isn't secret.
+   4. Copy the bucket's **S3 API** endpoint from its settings. It looks like
+      `https://<YOUR_CLOUDFLARE_ACCOUNT_ID>.r2.cloudflarestorage.com`, or with `.eu.` before
+      `r2` if you chose the EU jurisdiction. Use it exactly as shown. It isn't secret.
 
    </TabItem>
    <TabItem label="Other S3-compatible storage">
