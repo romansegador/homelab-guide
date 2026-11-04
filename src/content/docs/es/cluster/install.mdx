@@ -88,6 +88,10 @@ El razonamiento detrás de cada elección está en las [preguntas frecuentes](/e
    Guarda el Access Key ID y el Secret Access Key en tu gestor de contraseñas, y apunta el endpoint
    S3 API del bucket.
 
+   Un segundo bucket no cuesta nada más: el nivel gratuito de R2 cuenta el almacenamiento y las
+   peticiones de toda la cuenta, no de cada bucket. Las instantáneas de un clúster pequeño ocupan
+   unos pocos MB cada una, y en el bucket se guardan 5 copias.
+
 3. **Escribe el fichero de configuración de k3s.** Copia
    [`examples/02-cluster`](https://github.com/romansegador/homelab-guide/tree/main/examples/02-cluster)
    a tu repositorio privado como `infra/k3s/`. En `config.yaml`, cambia `tls-san` por el nombre DNS

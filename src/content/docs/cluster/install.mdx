@@ -81,6 +81,10 @@ The reasoning behind each choice is in the [FAQ](/start-here/faq/#chapter-2--the
    same steps as in [Set up OpenTofu](/machine/opentofu-setup/)). Store the Access Key ID and Secret
    Access Key in your password manager, and note the bucket's S3 API endpoint.
 
+   A second bucket costs nothing extra: R2's free tier counts storage and requests across the whole
+   account, not per bucket. A small cluster's snapshots are a few MB each, and 5 copies are kept in
+   the bucket.
+
 3. **Write the k3s config file.** Copy
    [`examples/02-cluster`](https://github.com/romansegador/homelab-guide/tree/main/examples/02-cluster)
    into your private repository as `infra/k3s/`. In `config.yaml`, change `tls-san` to your
