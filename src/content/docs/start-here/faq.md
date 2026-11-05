@@ -222,3 +222,58 @@ without changing the apps themselves.
 Because nothing is exposed on the network yet, and there's nothing to undo later. Opening the UI on
 your LAN now would mean plain HTTP, so your admin password would cross the network unencrypted.
 Chapter 5 gives ArgoCD a proper `https://` address with a real certificate.
+
+## Chapter 4 · Secrets
+
+### Why a secrets manager, and not encrypted secrets in git (SOPS, Sealed Secrets)?
+Encrypted secrets in git work well, and need no outside service. But the encrypted files stay in
+your history forever, so a key that leaks later unlocks every old version too. Rotating a secret
+means re-encrypting and committing. A secrets manager keeps the values out of git entirely, lets you
+change a secret without a commit, and is where you'd look for a password anyway. See
+[decision 4](/plan/architecture/#4-secrets-live-in-a-secrets-manager-off-the-machine).
+
+### Why Bitwarden Secrets Manager?
+It's hosted (nothing more to run or back up at home), its free plan covers a homelab (3 projects,
+3 machine accounts, unlimited secrets), and many people already use Bitwarden for passwords.
+
+Two honest caveats:
+- External Secrets marks its Bitwarden support as **alpha**: it works, but it has fewer users than
+  the big cloud providers, and its settings may change between versions. The guide pins the version
+  and was tested with it. The same label is on Infisical, Doppler, 1Password and OpenBao, so
+  switching to another hosted manager doesn't avoid it.
+- It needs a helper service inside the cluster, the Bitwarden SDK server, with its own certificate.
+
+| Alternative | When to pick it |
+|---|---|
+| **Infisical** or **Doppler** | Similar hosted managers that External Secrets reaches directly, with no helper service or certificate. Pick one if you don't use Bitwarden. |
+| **1Password** | If you already pay for it. |
+| **A cloud provider's manager** (AWS, Google Cloud, Azure) | If you already have an account there. They're among External Secrets' stable providers, but they're paid per secret and per request. |
+| **Self-hosted** (OpenBao, Vault) | If nothing may leave your home. It's one more critical service to run and back up, and it's on the roadmap's extras. |
+
+### Why install cert-manager in this chapter?
+The Bitwarden SDK server only speaks HTTPS, so it needs a certificate, and making certificates is
+cert-manager's job. The alternative, a certificate made by hand with `openssl`, is one more thing
+created outside git, and you'd have to remember to renew it. Chapter 5 needed cert-manager anyway.
+
+The certificate is **self-signed and long-lived** (10 years) on purpose. It's only used inside the
+cluster, between two components, and the store trusts exactly that certificate. The SDK server
+reads its certificate only when it starts, so a renewed short-lived certificate wouldn't be picked
+up until the pod restarted.
+
+### Which versions, and why?
+The newest releases, checked against each project's table of supported Kubernetes versions.
+External Secrets 2.14 is tested on Kubernetes 1.37. cert-manager 1.21 lists Kubernetes up to 1.36:
+its next release (1.22) adds 1.37, and moving to it will be a one-line change in
+`apps/cert-manager.yaml`. cert-manager uses only stable Kubernetes APIs, so a version one step
+behind is a small risk.
+
+### Why one ClusterSecretStore and one project?
+One project and one machine account means one token to create by hand, and one store that every
+namespace can use. The cost: any app's ExternalSecret could ask for any secret in the project. With
+one administrator, that's fine. With several teams, or apps you trust less, give each its own
+project, machine account and (namespaced) SecretStore, so a leaked token reaches less.
+
+### Why point to secrets by name, not by id?
+A name like `demo-message` is readable in git and in reviews. You can see what an app uses without
+opening Bitwarden. Names must be unique within the project, and External Secrets reports an error if
+two secrets share one. An id survives a rename, but git then shows only opaque ids.

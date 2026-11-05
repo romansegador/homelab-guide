@@ -64,6 +64,11 @@ export default defineConfig({
 					translations: { es: '3 · GitOps' },
 					items: [{ slug: 'gitops/argocd' }],
 				},
+				{
+					label: '4 · Secrets',
+					translations: { es: '4 · Secretos' },
+					items: [{ slug: 'secrets/external-secrets' }],
+				},
 			],
 		}),
 	],
