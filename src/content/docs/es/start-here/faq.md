@@ -186,6 +186,23 @@ Para que instalar de nuevo (en una máquina reconstruida) dé el mismo clúster 
 actualizaciones ocurren cuando tú decides, de una versión menor en una, después de una instantánea.
 Se trata en el capítulo de operación diaria.
 
+### ¿Por qué el script de instalación cambia un ajuste de AppArmor?
+Ubuntu 26.04 activa `kernel.apparmor_restrict_unprivileged_unconfined` por defecto. Con él
+activado, cada contenedor se ejecuta con una etiqueta de AppArmor «apilada»
+(`cri-containerd.apparmor.d//&unconfined`) que el perfil del propio runtime de contenedores no
+espera. El resultado: **los procesos de un mismo contenedor no pueden enviarse señales.** La
+mayoría de aplicaciones no lo notan. Postgres sí: sus procesos se despiertan unos a otros con
+señales, así que la primera conexión espera para siempre y la base de datos nunca termina de
+arrancar (capítulo 7). El registro del kernel lo muestra como `apparmor="DENIED" operation="signal"`.
+
+El script desactiva solo ese ajuste en `/etc/sysctl.d/20-apparmor.conf`, el fichero de sobrescritura
+que indica la propia configuración de Ubuntu. Los contenedores siguen con su perfil de AppArmor,
+solo que sin la etiqueta apilada. La solución corresponde al runtime de contenedores
+([containerd#14485](https://github.com/containerd/containerd/issues/14485)). Cuando una versión de
+k3s la incluya, el ajuste puede volver a activarse. Si instalaste k3s antes de que el script lo
+hiciera, añade el fichero y reinicia la máquina, porque los contenedores en marcha conservan su
+etiqueta antigua.
+
 
 ## Capítulo 3 · GitOps
 

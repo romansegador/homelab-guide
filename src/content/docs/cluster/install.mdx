@@ -96,7 +96,9 @@ The reasoning behind each choice is in the [FAQ](/start-here/faq/#chapter-2--the
    ```
 
    It takes a minute or two and runs four steps:
-   1. copies `config.yaml` to `/etc/rancher/k3s/config.yaml` on the machine,
+   1. copies `config.yaml` to `/etc/rancher/k3s/config.yaml` on the machine, and turns off one
+      Ubuntu AppArmor setting that breaks some containers (the
+      [FAQ](/start-here/faq/#why-does-the-install-script-change-an-apparmor-setting) explains it),
    2. installs k3s with the official install script, at the version pinned at the top of
       `install.sh`,
    3. waits for the node to be `Ready`, and takes a first snapshot,

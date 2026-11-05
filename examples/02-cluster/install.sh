@@ -5,7 +5,9 @@
 #
 # It runs four steps over SSH, and you can rerun it safely:
 #   1. copies config.yaml to /etc/rancher/k3s/config.yaml on the machine, and creates the
-#      etcd-snapshot-dir it names (k3s doesn't create a custom snapshot folder itself),
+#      etcd-snapshot-dir it names (k3s doesn't create a custom snapshot folder itself). On
+#      Ubuntu 26.04 and later, it also turns off one AppArmor setting that stops processes in the
+#      same container from signalling each other (see the FAQ, chapter 2),
 #   2. installs k3s at the pinned version below, with the official install script,
 #   3. waits for the node to be Ready, and takes a first etcd snapshot,
 #   4. saves the kubeconfig as ~/.kube/<machine>.yaml, pointed at the machine's name.
@@ -30,6 +32,14 @@ snapshot_dir="$(sed -n 's/^etcd-snapshot-dir:[[:space:]]*//p' "$here/config.yaml
 if [ -n "$snapshot_dir" ]; then
   ssh "$target" "sudo install -d -m 700 '$snapshot_dir'"
 fi
+# With this Ubuntu setting on, every container runs under a "stacked" AppArmor label that the
+# container runtime's profile doesn't expect, so signals inside a container are denied and
+# Postgres hangs. Upstream issue: https://github.com/containerd/containerd/issues/14485
+ssh "$target" 'if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_unconfined ]; then
+    printf "%s\n" "kernel.apparmor_restrict_unprivileged_unconfined = 0" \
+      | sudo tee /etc/sysctl.d/20-apparmor.conf >/dev/null
+    sudo sysctl -q -p /etc/sysctl.d/20-apparmor.conf
+  fi'
 
 echo "2/4 Installing k3s $K3S_VERSION (about a minute)"
 ssh "$target" "curl -sfL https://get.k3s.io -o /tmp/install-k3s.sh \

@@ -41,6 +41,8 @@ Example files: `examples/02-cluster/` (`config.yaml`, `install.sh`, `test-volume
    kubectl earlier in `PATH`, for example Docker Desktop's in `/usr/local/bin`.
 2. Copy `examples/02-cluster/` to `infra/k3s/`. Set `tls-san` to the machine's DNS name.
 3. Laptop (with the user's OK): `bash infra/k3s/install.sh <user>@<machine>`. It copies the config,
+   turns off `kernel.apparmor_restrict_unprivileged_unconfined` where it exists (Ubuntu 26.04: it
+   blocks signals inside containers; see the FAQ),
    installs k3s at the version pinned in the script (official `get.k3s.io` script), waits for
    `Ready`, takes a `first` snapshot and writes `~/.kube/<machine>.yaml`. It never prints secrets.
    Rerun it after changing `config.yaml` (the installer restarts k3s).

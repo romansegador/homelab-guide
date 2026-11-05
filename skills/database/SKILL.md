@@ -51,6 +51,15 @@ Example files: `examples/07-database/` (`apps/cloudnative-pg.yaml`, `apps/plugin
   `kubectl -n demo-db logs demo-1 -c plugin-barman-cloud`. Usual causes: wrong bucket or endpoint,
   key not scoped to that bucket, ExternalSecret not synced
   (`kubectl -n demo-db get externalsecret backup-credentials`).
+- `AccessDenied` / "Permission denied when accessing bucket": the key works but isn't allowed on
+  that bucket. Check that the bucket name in `object-store.yaml` matches the bucket the token is
+  scoped to, that the token has read & write, and (R2) that an EU bucket uses the `.eu.` endpoint.
+  WAL archiving retries on its own once fixed. A Backup that already failed stays `failed`: ask the
+  user before creating an on-demand Backup.
+- Cluster stuck in `Setting up primary`, with Postgres connections hanging in `authentication`:
+  check the node's kernel log for `apparmor="DENIED" operation="signal"`. On Ubuntu 26.04 that's
+  `kernel.apparmor_restrict_unprivileged_unconfined=1` (the chapter 2 install script turns it off;
+  FAQ chapter 2). Fixing it means a sysctl file and a reboot of the machine: get the user's OK.
 - Plugin pod not ready: cert-manager missing, or the plugin isn't in the operator's namespace
   (`cnpg-system`).
 - Restore cluster stuck: no completed base backup yet, or `serverName` doesn't match the original

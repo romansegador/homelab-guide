@@ -168,6 +168,21 @@ machine would bring a replicated storage choice, and that's on the roadmap.
 So installing again (on a rebuilt machine) gives the same cluster as before. Upgrades happen when
 you choose to, one minor version at a time, after a snapshot. That's covered in the Day 2 chapter.
 
+### Why does the install script change an AppArmor setting?
+Ubuntu 26.04 turns on `kernel.apparmor_restrict_unprivileged_unconfined` by default. With it on,
+every container runs under a "stacked" AppArmor label (`cri-containerd.apparmor.d//&unconfined`)
+that the container runtime's own profile doesn't expect. The result: **processes in the same
+container can't send each other signals.** Most apps don't notice. Postgres does: its processes wake
+each other with signals, so the first connection waits forever and the database never finishes
+starting (chapter 7). The kernel log shows it as `apparmor="DENIED" operation="signal"`.
+
+The script turns that one setting off in `/etc/sysctl.d/20-apparmor.conf`, the override file
+Ubuntu's own config points to. Containers still run under their AppArmor profile, just without the
+stacked label. The fix belongs in the container runtime
+([containerd#14485](https://github.com/containerd/containerd/issues/14485)). Once a k3s release
+ships it, the setting can go back on. If you installed k3s before this was in the script, add the
+file and reboot the machine, because running containers keep their old label.
+
 
 ## Chapter 3 · GitOps
 

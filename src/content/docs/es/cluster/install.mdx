@@ -103,7 +103,10 @@ El razonamiento detrás de cada elección está en las [preguntas frecuentes](/e
    ```
 
    Tarda uno o dos minutos y hace cuatro pasos:
-   1. copia `config.yaml` a `/etc/rancher/k3s/config.yaml` en la máquina,
+   1. copia `config.yaml` a `/etc/rancher/k3s/config.yaml` en la máquina, y desactiva un ajuste
+      de AppArmor de Ubuntu que rompe algunos contenedores (las
+      [preguntas frecuentes](/es/start-here/faq/#por-qué-el-script-de-instalación-cambia-un-ajuste-de-apparmor)
+      lo explican),
    2. instala k3s con el script oficial de instalación, en la versión fijada al principio de
       `install.sh`,
    3. espera a que el nodo esté `Ready` y toma una primera instantánea,
