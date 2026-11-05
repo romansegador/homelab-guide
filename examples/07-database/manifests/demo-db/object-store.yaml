@@ -8,6 +8,7 @@ metadata:
 spec:
   configuration:
     destinationPath: s3://<YOUR_BACKUP_BUCKET>/
+    # A bucket created in R2's EU jurisdiction uses https://<YOUR_CLOUDFLARE_ACCOUNT_ID>.eu.r2.cloudflarestorage.com
     endpointURL: https://<YOUR_CLOUDFLARE_ACCOUNT_ID>.r2.cloudflarestorage.com
     s3Credentials:
       accessKeyId:

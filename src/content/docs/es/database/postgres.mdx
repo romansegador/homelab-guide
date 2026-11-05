@@ -76,7 +76,9 @@ El razonamiento detrás de cada elección está en las [preguntas frecuentes](/e
 <Steps>
 
 1. **Crea un bucket y una clave de acceso.** En el panel de Cloudflare, abre **R2 Object Storage**:
-   1. **Create bucket**, con un nombre como `homelab-db-backups`, ubicación **Automatic**.
+   1. **Create bucket**, con un nombre como `homelab-db-backups`. La ubicación **Automatic** sirve.
+      Si eliges la jurisdicción **EU**, que mantiene los datos dentro de la UE, apúntalo: cambia
+      la dirección del bucket.
    2. **Manage API tokens → Create API token**: permiso **Object Read & Write**, aplicado **solo a
       ese bucket**.
    3. Cloudflare muestra una sola vez un **Access Key ID** y un **Secret Access Key**. En
@@ -94,7 +96,8 @@ El razonamiento detrás de cada elección está en las [preguntas frecuentes](/e
    Después rellena tus valores:
    - En `apps/demo-db.yaml`, sustituye `<YOUR_CONFIG_REPO_URL>`, como antes.
    - En `manifests/demo-db/object-store.yaml`, sustituye `<YOUR_BACKUP_BUCKET>` y
-     `<YOUR_CLOUDFLARE_ACCOUNT_ID>`.
+     `<YOUR_CLOUDFLARE_ACCOUNT_ID>`. Para un bucket de la jurisdicción EU, la dirección termina en
+     `.eu.r2.cloudflarestorage.com`, como muestra el comentario de ese fichero.
 
    Haz commit y push a `main`.
 

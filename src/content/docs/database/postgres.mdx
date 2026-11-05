@@ -68,7 +68,9 @@ The reasoning behind each choice is in the [FAQ](/start-here/faq/#chapter-7--a-d
 <Steps>
 
 1. **Create a bucket and an access key.** In the Cloudflare dashboard, open **R2 Object Storage**:
-   1. **Create bucket**, named for example `homelab-db-backups`, location **Automatic**.
+   1. **Create bucket**, named for example `homelab-db-backups`. Location **Automatic** is fine.
+      If you choose the **EU** jurisdiction instead, which keeps the data inside the EU, note it:
+      the bucket's address changes.
    2. **Manage API tokens → Create API token**: permission **Object Read & Write**, applied to
       **that bucket only**.
    3. Cloudflare shows an **Access Key ID** and a **Secret Access Key** once. In **Bitwarden
@@ -86,7 +88,8 @@ The reasoning behind each choice is in the [FAQ](/start-here/faq/#chapter-7--a-d
    Then fill in your values:
    - In `apps/demo-db.yaml`, replace `<YOUR_CONFIG_REPO_URL>`, as before.
    - In `manifests/demo-db/object-store.yaml`, replace `<YOUR_BACKUP_BUCKET>` and
-     `<YOUR_CLOUDFLARE_ACCOUNT_ID>`.
+     `<YOUR_CLOUDFLARE_ACCOUNT_ID>`. For an EU-jurisdiction bucket, the address ends in
+     `.eu.r2.cloudflarestorage.com`, as the comment there shows.
 
    Commit and push to `main`.
 
