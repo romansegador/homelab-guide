@@ -1,0 +1,24 @@
+# Where backups go: a bucket in S3-compatible object storage, here Cloudflare R2. Each database
+# cluster gets its own folder in the bucket, named after the cluster.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: offsite
+  namespace: demo-db
+spec:
+  configuration:
+    destinationPath: s3://<YOUR_BACKUP_BUCKET>/
+    endpointURL: https://<YOUR_CLOUDFLARE_ACCOUNT_ID>.r2.cloudflarestorage.com
+    s3Credentials:
+      accessKeyId:
+        name: backup-credentials
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: backup-credentials
+        key: ACCESS_SECRET_KEY
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+  # Keep enough backups and WAL to restore to any moment of the last 14 days.
+  retentionPolicy: "14d"

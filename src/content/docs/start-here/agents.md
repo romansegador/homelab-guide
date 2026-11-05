@@ -48,3 +48,4 @@ Give your agent one of those URLs and ask it to guide you through a chapter.
 | 4 · Secrets | `secrets` |
 | 5 · HTTPS and private DNS | `https` |
 | 6 · Your first app | `first-app` |
+| 7 · A database | `database` |

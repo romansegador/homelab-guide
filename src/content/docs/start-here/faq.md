@@ -408,3 +408,69 @@ once you have several repositories.
 The cluster then needs credentials to pull it: a registry token, stored in the secrets manager,
 synced into the app's namespace by an ExternalSecret of type `kubernetes.io/dockerconfigjson`, and
 named in the Deployment's `imagePullSecrets`. Chapter 8 does this for a private app.
+
+## Chapter 7 · A database
+
+### Why an operator, and not a plain Postgres container?
+A Postgres container with a volume runs fine, until you need a backup you can trust, a restore, or
+a major version upgrade. Then you're writing scripts for each. An operator already knows how: it
+makes consistent backups, archives WAL continuously, restores into a new cluster from one YAML
+file, and runs upgrades in the right order. A plain container plus a nightly `pg_dump` is simpler,
+but it only gives you last night's data, and you test the restore by hand.
+
+### Why CloudNativePG?
+It's the most widely used Postgres operator, a CNCF project, and built for Kubernetes from the
+start. Backups, point-in-time recovery and restores are part of the Cluster file.
+
+| Alternative | When to pick it |
+|---|---|
+| **Crunchy PGO** | If you want pgBackRest, a very mature backup tool. It's heavier, and still needs object storage for off-site backups. |
+| **Zalando postgres-operator** | If you already know it. It's older, and its backups (WAL-G) need more setup. |
+| **A plain container + `pg_dump`** | For a throwaway database, or if your backups can only go somewhere that isn't object storage (for example SFTP). |
+
+### Which versions, and why?
+CloudNativePG 1.30, the newest. It officially supports Kubernetes 1.34 to 1.36, and lists 1.37,
+which this guide runs, as "tested, but not supported": the project runs its tests on it, but
+doesn't promise fixes for problems found only there. Postgres 18 is the newest version it
+supports.
+
+### Why the Barman Cloud plugin, and not the operator's built-in backups?
+CloudNativePG used to back up to object storage by itself (`barmanObjectStore` in the Cluster).
+That's deprecated in favour of the plugin, which keeps the backup code out of the operator and out
+of the Postgres image. New setups should use the plugin. It needs cert-manager, which you already
+have.
+
+### Why one instance?
+On one machine, a second instance would sit on the same disk, in the same box: if the machine
+fails, both fail. It would double the memory and protect nothing. With a second machine, set
+`instances: 2`, and the operator adds a replica and handles failover.
+
+### Why Cloudflare R2 for backups?
+CloudNativePG backs up to S3-compatible object storage, and R2 is S3-compatible, off-site, and has
+a free tier that a homelab database fits in easily: 10 GB of storage, a million writes and ten
+million reads a month, per account (not per bucket). A small database with 14 days of backups and
+WAL uses a fraction of that. R2 also doesn't charge for downloads, so a restore costs nothing.
+
+If you'd rather keep backups at home, run S3-compatible storage on your NAS (for example Garage),
+and copy that off-site separately. A storage service that only speaks SFTP (like a Hetzner Storage
+Box) doesn't work with the plugin directly.
+
+### Are the backups encrypted?
+R2 encrypts everything it stores, and the connection uses HTTPS. The plugin can't encrypt backups
+itself before they leave the cluster. That's why the access key only reaches one bucket, and lives
+only in the secrets manager.
+
+### Why let the operator create the passwords?
+It creates a strong password for the app user, stores it in a Secret next to the database, and an
+app reads it from there. Nobody types it, and it never touches git or your laptop. A password from
+the secrets manager would be one more value to create and keep in sync, for no gain, because only
+the app inside the cluster uses it. The Postgres superuser has no password and no network access:
+`kubectl exec` is how you get an admin shell.
+
+### Why restore in this chapter, and not later?
+A backup you've never restored is a hope. Restoring into a second cluster proves that the bucket
+alone is enough, without touching the original. Do it again whenever you change how backups work.
+
+### Why a 14-day retention?
+Long enough to notice a problem, like a bad migration or deleted rows, and restore to before it.
+Short enough to stay small. Change `retentionPolicy` if you need more.

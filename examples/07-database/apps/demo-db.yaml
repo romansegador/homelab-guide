@@ -1,0 +1,36 @@
+# A demo Postgres database with off-site backups. Delete this file (and manifests/demo-db/) to
+# remove it; the finalizer makes ArgoCD delete its resources, including the data volume.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: demo-db
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # The operator fills in defaults when a Cluster is created. Comparing on the server (with
+    # those defaults) keeps ArgoCD from reporting a difference that isn't there.
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
+spec:
+  project: default
+  source:
+    repoURL: <YOUR_CONFIG_REPO_URL>
+    targetRevision: main
+    path: manifests/demo-db
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: demo-db
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

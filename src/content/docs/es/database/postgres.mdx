@@ -1,0 +1,178 @@
+---
+title: Una base de datos
+description: Ejecuta Postgres con el operador CloudNativePG, haz copias de seguridad continuas en Cloudflare R2 para poder restaurar a cualquier momento, y demuéstralo restaurando en una base de datos nueva.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+:::note[Traducción asistida por IA]
+Esta página es una traducción asistida por IA del original en inglés, que es la referencia. Si
+ves un error, abre un issue o un PR.
+:::
+
+La mayoría de aplicaciones necesitan una base de datos, y una base de datos es lo único que no
+puedes reconstruir desde git. Este capítulo ejecuta Postgres a la manera de Kubernetes, con un
+**operador**, y lo copia fuera de la máquina desde el primer minuto. Al terminar tendrás:
+- **CloudNativePG**, un operador que ejecuta Postgres a partir de una breve descripción en YAML,
+- el **plugin Barman Cloud**, que envía las copias de seguridad a un almacenamiento de objetos,
+- una base de datos de demostración con una copia completa cada noche y copias **continuas**
+  entre medias, en un bucket de **Cloudflare R2**,
+- la prueba de que funciona: una segunda base de datos restaurada solo desde el bucket.
+
+<Aside type="tip" title="Hazlo con un agente de IA">
+Este capítulo tiene una skill para agentes, `database`. Consulta [Usar con un agente de IA](/es/start-here/agents/).
+</Aside>
+
+**Probado con:** CloudNativePG 1.30.1 (chart 0.29.1), plugin Barman Cloud 0.15.1 (chart 0.8.1),
+PostgreSQL 18.6, sobre k3s v1.37.2+k3s1 con ArgoCD 3.6.1. Copias de seguridad en Cloudflare R2.
+
+## Antes, unas ideas
+
+### Un operador
+Postgres necesita más cuidados que un servidor web: sus datos deben sobrevivir a los reinicios, las
+actualizaciones deben hacerse en orden, y las copias de seguridad deben ser coherentes. Un
+**operador** es un programa en el clúster que sabe hacerlo. Describes lo que quieres en un fichero
+**Cluster** («Postgres 18, una instancia, una base de datos llamada `app`»), y el operador crea y
+cuida los pods, el volumen y las contraseñas.
+
+### Copias que puedes restaurar a cualquier momento
+Postgres escribe cada cambio en su **registro de escritura anticipada** (WAL, por sus siglas en
+inglés) antes de cambiar los datos. El plugin de copias copia dos cosas al bucket:
+- una **copia completa** de los datos cada noche,
+- cada **fichero WAL** terminado, en cuanto se escribe (al menos cada cinco minutos mientras la
+  base de datos está en uso).
+
+Para restaurar, el operador parte de la última copia completa y vuelve a aplicar el WAL posterior.
+Así puedes restaurar a cualquier momento, no solo a anoche: es lo que se llama **recuperación a un
+punto en el tiempo**.
+
+```text
+                      cada noche                  de forma continua
+demo database ───────▶ copia completa ──┐   ┌──── ficheros WAL ◀───── demo database
+                                        ▼   ▼
+                          bucket de R2: <bucket>/demo/{base,wals}
+                                        │
+                                        ▼ restaurar: copia completa + aplicar WAL
+                             demo-restore (una base de datos nueva)
+```
+
+### Dos capas de copias
+La copia nocturna de la VM de tu máquina (capítulo 2) también copia el disco de la base de datos,
+pero es una copia hecha mientras la base de datos funciona, en tu propia casa. Las copias en R2 son
+coherentes, continuas y fuera de casa. Mantén las dos: la de la VM para volver atrás rápido en
+local, y R2 para cuando la máquina o la casa ya no estén.
+
+El razonamiento detrás de cada elección está en las [preguntas frecuentes](/es/start-here/faq/#capítulo-7--una-base-de-datos).
+
+## Antes de empezar
+
+- [ ] El capítulo 4 terminado: el ClusterSecretStore `bitwarden` está `Valid`. cert-manager está
+      instalado.
+- [ ] Una cuenta de Cloudflare con **R2** activado. Cloudflare pide un método de pago para
+      activarlo, incluso en el plan gratuito.
+
+## Prepáralo
+
+<Steps>
+
+1. **Crea un bucket y una clave de acceso.** En el panel de Cloudflare, abre **R2 Object Storage**:
+   1. **Create bucket**, con un nombre como `homelab-db-backups`, ubicación **Automatic**.
+   2. **Manage API tokens → Create API token**: permiso **Object Read & Write**, aplicado **solo a
+      ese bucket**.
+   3. Cloudflare muestra una sola vez un **Access Key ID** y un **Secret Access Key**. En
+      **Bitwarden Secrets Manager**, añádelos al proyecto del clúster (`lab-1`) como
+      `db-backup-access-key-id` y `db-backup-secret-access-key`.
+
+   Apunta también tu **Account ID**, que aparece en la página de resumen de R2. No es secreto:
+   forma parte de la dirección del bucket.
+
+2. **Añade los ficheros a tu repositorio.** Copia
+   [`examples/07-database`](https://github.com/romansegador/homelab-guide/tree/main/examples/07-database)
+   en tu repositorio, uniendo sus carpetas con las tuyas. La carpeta `restore/` es para más tarde:
+   ArgoCD solo lee `apps/`, así que nada de ella se ejecuta todavía.
+
+   Después rellena tus valores:
+   - En `apps/demo-db.yaml`, sustituye `<YOUR_CONFIG_REPO_URL>`, como antes.
+   - En `manifests/demo-db/object-store.yaml`, sustituye `<YOUR_BACKUP_BUCKET>` y
+     `<YOUR_CLOUDFLARE_ACCOUNT_ID>`.
+
+   Haz commit y push a `main`.
+
+3. **Míralo arrancar.** ArgoCD instala el operador y el plugin, y después la base de datos de
+   demostración. El operador crea la base de datos, y la primera copia completa empieza enseguida.
+   Tarda unos minutos:
+
+   ```sh title="Portátil"
+   kubectl -n argocd get applications
+   kubectl -n demo-db get cluster demo
+   kubectl -n demo-db get backups
+   ```
+
+   Todas las Applications están `Synced` y `Healthy`. El clúster muestra `Cluster in healthy
+   state`, con `1` instancia lista. La fase de la copia es `completed`. La primera sincronización
+   de `demo-db` puede fallar mientras el operador aún se instala: ArgoCD reintenta solo.
+
+</Steps>
+
+## Compruébalo
+
+**Los ficheros WAL llegan al bucket:**
+
+```sh title="Portátil"
+kubectl -n demo-db get cluster demo -o jsonpath='{.status.conditions[?(@.type=="ContinuousArchiving")].status}'; echo
+```
+
+Imprime `True`. En el panel de R2, tu bucket tiene una carpeta `demo/` con `base/` (las copias
+completas) y `wals/` (los ficheros WAL).
+
+**Añade algunos datos.** Abre una consola de la base de datos dentro del pod de Postgres:
+
+```sh title="Portátil"
+kubectl -n demo-db exec -it demo-1 -c postgres -- psql -d app
+```
+
+Después ejecuta estas sentencias, una línea cada vez:
+
+```sql
+CREATE TABLE notes (id serial PRIMARY KEY, body text);
+INSERT INTO notes (body) VALUES ('written after the first backup');
+SELECT pg_switch_wal();
+\q
+```
+
+Por ahora, la fila nueva solo existe en el WAL, no en ninguna copia completa. `pg_switch_wal()`
+cierra el fichero WAL actual ya, así que va al bucket ahora en vez de en cinco minutos.
+
+**Restaura en una base de datos nueva.** Copia `restore/demo-restore.yaml` en `manifests/demo-db/`,
+y haz commit y push. El operador construye un clúster nuevo, `demo-restore`, solo desde el bucket:
+la copia completa y después el WAL posterior. Tras unos minutos:
+
+```sh title="Portátil"
+kubectl -n demo-db get cluster demo-restore
+kubectl -n demo-db exec demo-restore-1 -c postgres -- psql -d app -c 'SELECT * FROM notes'
+```
+
+El clúster está sano, y la consulta muestra tu fila, `written after the first backup`. Esa fila ha
+vuelto desde el WAL. Ahora borra `manifests/demo-db/demo-restore.yaml`, y haz commit y push:
+`demo-restore` desaparece, y `demo` no se toca.
+
+**Quita la demostración.** Borra `apps/demo-db.yaml` y `manifests/demo-db/`, haz commit y push. Tras
+la siguiente sincronización, el namespace `demo-db` ha desaparecido, con sus datos:
+
+```sh title="Portátil"
+kubectl get namespace demo-db
+```
+
+Dice `NotFound`. El operador y el plugin se quedan, para el siguiente capítulo. Las copias también
+se quedan en el bucket: borra la carpeta `demo/` en el panel de R2.
+
+## Antes de seguir
+
+- [ ] Todas las comprobaciones pasan: la restauración mostró tu fila, y la demostración está
+      quitada.
+- [ ] En Bitwarden Secrets Manager: `db-backup-access-key-id` y `db-backup-secret-access-key`.
+- [ ] Los ficheros nuevos con commit. No contienen valores secretos.
+
+A partir de ahora, una aplicación que necesita una base de datos lleva un fichero Cluster al lado,
+con copias de seguridad desde el principio. Siguiente: una aplicación real, con una web, una API,
+un worker y una base de datos.

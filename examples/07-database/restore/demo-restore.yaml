@@ -1,0 +1,24 @@
+# A restore test: a brand-new database cluster, built only from what's in the bucket. Copy this
+# file into manifests/demo-db/ to run it, and delete it again when you've checked the data.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: demo-restore
+  namespace: demo-db
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.6-standard-trixie
+  storage:
+    size: 5Gi
+  bootstrap:
+    recovery:
+      source: demo
+  # Where to read from: the original cluster's folder in the bucket. This cluster archives nothing
+  # itself, so it can't overwrite the original's backups.
+  externalClusters:
+    - name: demo
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: offsite
+          serverName: demo

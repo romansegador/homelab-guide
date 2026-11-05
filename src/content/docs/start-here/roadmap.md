@@ -15,7 +15,7 @@ build progresses.
 | 4 | **Secrets** | An external secrets manager synced into the cluster (Bitwarden Secrets Manager + External Secrets Operator) | ✅ Tested |
 | 5 | **HTTPS and private DNS** | cert-manager with DNS-01, a wildcard certificate, ingress, internal DNS records | ✅ Tested |
 | 6 | **Your first app** | This guide itself: built by CI, published as an image, deployed by ArgoCD, served over HTTPS | ✅ Tested |
-| 7 | **A database** | Postgres managed by an operator, with off-site backups | Planned |
+| 7 | **A database** | Postgres managed by an operator, with off-site backups | ✍️ Draft, being tested |
 | 8 | **A real app** | A multi-service app (web, API, worker, database) with automated image updates | Planned |
 | 9 | **Going public** | Exposing one app to the internet through a tunnel, with an access policy in front | Planned |
 | 10 | **Day 2** | Upgrades, backups and restores, monitoring basics, and a full rebuild from zero | Planned |

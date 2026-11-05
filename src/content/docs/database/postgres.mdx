@@ -1,0 +1,168 @@
+---
+title: A database
+description: Run Postgres with the CloudNativePG operator, back it up continuously to Cloudflare R2 so you can restore to any moment, and prove it by restoring into a brand-new database.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+Most apps need a database, and a database is the one thing you can't rebuild from git. This
+chapter runs Postgres the Kubernetes way, with an **operator**, and backs it up off the machine
+from the first minute. At the end you'll have:
+- **CloudNativePG**, an operator that runs Postgres from a short YAML description,
+- the **Barman Cloud plugin**, which streams backups to object storage,
+- a demo database with a full backup every night and **continuous** backups in between, in a
+  **Cloudflare R2** bucket,
+- proof that it works: a second database restored from the bucket alone.
+
+<Aside type="tip" title="Do it with an AI agent">
+This chapter has an agent skill, `database`. See [Use with an AI agent](/start-here/agents/).
+</Aside>
+
+**Tested with:** CloudNativePG 1.30.1 (chart 0.29.1), Barman Cloud plugin 0.15.1 (chart 0.8.1),
+PostgreSQL 18.6, on k3s v1.37.2+k3s1 with ArgoCD 3.6.1. Backups to Cloudflare R2.
+
+## A few ideas first
+
+### An operator
+Postgres needs more care than a web server: its data must survive restarts, upgrades must be done
+in order, and backups must be consistent. An **operator** is a program in the cluster that knows
+how. You describe what you want in a **Cluster** file ("Postgres 18, one instance, a database
+called `app`"), and the operator creates and looks after the pods, the volume and the passwords.
+
+### Backups you can restore to any moment
+Postgres writes every change to its **write-ahead log** (WAL) before it changes the data. The
+backup plugin copies two things to the bucket:
+- a **full backup** of the data every night,
+- every finished **WAL file**, as soon as it's written (at least every five minutes while the
+  database is in use).
+
+To restore, the operator starts from the last full backup and replays the WAL after it. So you can
+restore to any moment, not just to last night: this is called **point-in-time recovery**.
+
+```text
+                      every night                 continuously
+demo database ───────▶ full backup ─────┐   ┌──── WAL files ◀──────── demo database
+                                        ▼   ▼
+                          R2 bucket: <bucket>/demo/{base,wals}
+                                        │
+                                        ▼ restore: full backup + replay WAL
+                             demo-restore (a new database)
+```
+
+### Two layers of backup
+Your machine's nightly VM backup (chapter 2) also copies the database's disk, but that's a copy
+taken while the database is running, on your own premises. The R2 backups are consistent,
+continuous and off-site. Keep both: the VM backup for a quick local rollback, R2 for when the
+machine or the building is gone.
+
+The reasoning behind each choice is in the [FAQ](/start-here/faq/#chapter-7--a-database).
+
+## Before you start
+
+- [ ] Chapter 4 done: the `bitwarden` ClusterSecretStore is `Valid`. cert-manager is installed.
+- [ ] A Cloudflare account with **R2** turned on. Cloudflare asks for a payment method to turn it
+      on, even on the free plan.
+
+## Set it up
+
+<Steps>
+
+1. **Create a bucket and an access key.** In the Cloudflare dashboard, open **R2 Object Storage**:
+   1. **Create bucket**, named for example `homelab-db-backups`, location **Automatic**.
+   2. **Manage API tokens → Create API token**: permission **Object Read & Write**, applied to
+      **that bucket only**.
+   3. Cloudflare shows an **Access Key ID** and a **Secret Access Key** once. In **Bitwarden
+      Secrets Manager**, add them to the cluster's project (`lab-1`) as `db-backup-access-key-id`
+      and `db-backup-secret-access-key`.
+
+   Also note your **Account ID**, shown on the R2 overview page. It isn't secret: it's part of the
+   bucket's address.
+
+2. **Add the files to your repository.** Copy
+   [`examples/07-database`](https://github.com/romansegador/homelab-guide/tree/main/examples/07-database)
+   into your repository, merging its folders with yours. The `restore/` folder is for later: ArgoCD
+   only reads `apps/`, so nothing in it runs yet.
+
+   Then fill in your values:
+   - In `apps/demo-db.yaml`, replace `<YOUR_CONFIG_REPO_URL>`, as before.
+   - In `manifests/demo-db/object-store.yaml`, replace `<YOUR_BACKUP_BUCKET>` and
+     `<YOUR_CLOUDFLARE_ACCOUNT_ID>`.
+
+   Commit and push to `main`.
+
+3. **Watch it come up.** ArgoCD installs the operator and the plugin, then the demo database. The
+   operator creates the database, and the first full backup starts straight away. It takes a few
+   minutes:
+
+   ```sh title="Laptop"
+   kubectl -n argocd get applications
+   kubectl -n demo-db get cluster demo
+   kubectl -n demo-db get backups
+   ```
+
+   Every Application is `Synced` and `Healthy`. The cluster shows `Cluster in healthy state`, with
+   `1` instance ready. The backup's phase is `completed`. The first sync of `demo-db` can fail
+   while the operator is still installing: ArgoCD retries on its own.
+
+</Steps>
+
+## Check it
+
+**WAL files are reaching the bucket:**
+
+```sh title="Laptop"
+kubectl -n demo-db get cluster demo -o jsonpath='{.status.conditions[?(@.type=="ContinuousArchiving")].status}'; echo
+```
+
+It prints `True`. In the R2 dashboard, your bucket has a `demo/` folder with `base/` (the full
+backups) and `wals/` (the WAL files).
+
+**Add some data.** Open a database shell inside the Postgres pod:
+
+```sh title="Laptop"
+kubectl -n demo-db exec -it demo-1 -c postgres -- psql -d app
+```
+
+Then run these statements, one line at a time:
+
+```sql
+CREATE TABLE notes (id serial PRIMARY KEY, body text);
+INSERT INTO notes (body) VALUES ('written after the first backup');
+SELECT pg_switch_wal();
+\q
+```
+
+The new row only exists in the WAL so far, not in any full backup. `pg_switch_wal()` closes the
+current WAL file now, so it goes to the bucket now instead of within five minutes.
+
+**Restore into a new database.** Copy `restore/demo-restore.yaml` into `manifests/demo-db/`, then
+commit and push. The operator builds a new cluster, `demo-restore`, from the bucket alone: the full
+backup, then the WAL after it. After a few minutes:
+
+```sh title="Laptop"
+kubectl -n demo-db get cluster demo-restore
+kubectl -n demo-db exec demo-restore-1 -c postgres -- psql -d app -c 'SELECT * FROM notes'
+```
+
+The cluster is in a healthy state, and the query shows your row, `written after the first backup`.
+That row came back from the WAL. Now delete `manifests/demo-db/demo-restore.yaml`, commit and
+push: `demo-restore` goes away, and `demo` is untouched.
+
+**Remove the demo.** Delete `apps/demo-db.yaml` and `manifests/demo-db/`, commit and push. After the
+next sync, the `demo-db` namespace is gone, with its data:
+
+```sh title="Laptop"
+kubectl get namespace demo-db
+```
+
+It says `NotFound`. The operator and the plugin stay, for the next chapter. The backups stay in the
+bucket too: delete the `demo/` folder in the R2 dashboard.
+
+## Before you move on
+
+- [ ] All the checks pass: the restore showed your row, and the demo is removed.
+- [ ] In Bitwarden Secrets Manager: `db-backup-access-key-id` and `db-backup-secret-access-key`.
+- [ ] The new files committed. They hold no secret values.
+
+From now on, an app that needs a database gets a Cluster file next to it, with backups from the
+start. Next: a real app, with a web front end, an API, a worker and a database.
