@@ -263,8 +263,8 @@ up until the pod restarted.
 ### Which versions, and why?
 The newest releases, checked against each project's table of supported Kubernetes versions.
 External Secrets 2.14 is tested on Kubernetes 1.37. cert-manager 1.21 lists Kubernetes up to 1.36:
-its next release (1.22) adds 1.37, and moving to it will be a one-line change in
-`apps/cert-manager.yaml`. cert-manager uses only stable Kubernetes APIs, so a version one step
+its next release (1.22) is expected around November 2026, with its Kubernetes versions not yet
+announced. Moving to it will be a one-line change in `apps/cert-manager.yaml`. cert-manager uses only stable Kubernetes APIs, so a version one step
 behind is a small risk.
 
 ### Why one ClusterSecretStore and one project?

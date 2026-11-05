@@ -288,8 +288,8 @@ se reiniciara.
 ### ¿Qué versiones, y por qué?
 Las más recientes, comprobadas con la tabla de versiones de Kubernetes soportadas de cada proyecto.
 External Secrets 2.14 está probado con Kubernetes 1.37. cert-manager 1.21 llega hasta Kubernetes
-1.36: su siguiente versión (1.22) añade la 1.37, y pasar a ella será un cambio de una línea en
-`apps/cert-manager.yaml`. cert-manager solo usa APIs estables de Kubernetes, así que una versión un
+1.36: su siguiente versión (1.22) se espera hacia noviembre de 2026, y aún no ha anunciado sus
+versiones de Kubernetes. Pasar a ella será un cambio de una línea en `apps/cert-manager.yaml`. cert-manager solo usa APIs estables de Kubernetes, así que una versión un
 paso por detrás es un riesgo pequeño.
 
 ### ¿Por qué un solo ClusterSecretStore y un solo proyecto?
