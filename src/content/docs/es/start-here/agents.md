@@ -50,3 +50,4 @@ Pasa a tu agente una de esas URLs y pídele que te guíe por un capítulo.
 | 1 · La máquina | `machine` |
 | 2 · El clúster | `cluster` |
 | 3 · GitOps | `gitops` |
+| 4 · Secretos | `secrets` |

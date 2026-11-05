@@ -1,0 +1,32 @@
+# The Bitwarden SDK server only speaks HTTPS, so it needs a certificate. It's used only inside the
+# cluster, between External Secrets and the SDK server, so a self-signed one is enough: the
+# ClusterSecretStore trusts exactly this certificate (its ca.crt).
+#
+# The SDK server reads its certificate only when it starts, so a renewed certificate would not be
+# picked up until the pod restarts. That's why this one is long-lived (10 years) instead of the
+# usual 90 days.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: selfsigned
+  namespace: external-secrets
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: bitwarden-sdk-server
+  namespace: external-secrets
+spec:
+  secretName: bitwarden-tls-certs   # the name the SDK server's chart mounts
+  commonName: bitwarden-sdk-server
+  dnsNames:
+    - bitwarden-sdk-server
+    - bitwarden-sdk-server.external-secrets.svc
+    - bitwarden-sdk-server.external-secrets.svc.cluster.local
+  duration: 87600h
+  renewBefore: 720h
+  issuerRef:
+    name: selfsigned
+    kind: Issuer

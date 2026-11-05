@@ -1,0 +1,28 @@
+# cert-manager issues and renews TLS certificates inside the cluster. In this chapter it makes one
+# internal certificate (for the Bitwarden SDK server). Chapter 5 adds Let's Encrypt for real HTTPS.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+    targetRevision: v1.21.3
+    helm:
+      valuesObject:
+        crds:
+          enabled: true   # install cert-manager's CRDs with the chart
+          keep: true      # and keep them if the app is ever removed, so certificates survive
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

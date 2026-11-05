@@ -243,3 +243,62 @@ más adelante sin cambiar las apps.
 Porque así no se expone nada en la red y no hay nada que deshacer después. Abrir la interfaz en tu
 red local ahora supondría HTTP sin cifrar, así que tu contraseña de admin cruzaría la red en claro.
 El capítulo 5 le da a ArgoCD una dirección `https://` con un certificado de verdad.
+
+## Capítulo 4 · Secretos
+
+### ¿Por qué un gestor de secretos, y no secretos cifrados en git (SOPS, Sealed Secrets)?
+Los secretos cifrados en git funcionan bien y no necesitan ningún servicio externo. Pero los
+ficheros cifrados se quedan en tu historial para siempre, así que una clave que se filtre más tarde
+también abre todas las versiones antiguas. Cambiar un secreto supone volver a cifrar y hacer commit.
+Un gestor de secretos mantiene los valores totalmente fuera de git, te deja cambiar un secreto sin
+commit y es donde buscarías una contraseña de todos modos. Consulta la
+[decisión 4](/es/plan/architecture/#4-los-secretos-viven-en-un-gestor-de-secretos-fuera-de-la-máquina).
+
+### ¿Por qué Bitwarden Secrets Manager?
+Está alojado (nada más que mantener ni copiar en casa), su plan gratuito cubre un homelab (3
+proyectos, 3 cuentas de máquina, secretos ilimitados) y mucha gente ya usa Bitwarden para sus
+contraseñas.
+
+Dos advertencias sinceras:
+- External Secrets marca su soporte de Bitwarden como **alpha**: funciona, pero tiene menos usuarios
+  que los grandes proveedores cloud, y sus ajustes pueden cambiar entre versiones. La guía fija la
+  versión y se probó con ella.
+- Necesita un servicio auxiliar dentro del clúster, el Bitwarden SDK server, con su propio
+  certificado.
+
+| Alternativa | Cuándo elegirla |
+|---|---|
+| **Infisical** o **Doppler** | Gestores alojados parecidos, con soporte estable en External Secrets. Elige uno si no usas Bitwarden. |
+| **1Password** | Si ya pagas por él. External Secrets lo soporta bien. |
+| **El gestor de un proveedor cloud** (AWS, Google Cloud, Azure) | Si ya tienes cuenta allí. Son los proveedores más maduros, pero se pagan por secreto y por petición. |
+| **Autoalojado** (OpenBao, Vault) | Si nada puede salir de tu casa. Es un servicio crítico más que mantener y copiar, y está entre los extras de la hoja de ruta. |
+
+### ¿Por qué instalar cert-manager en este capítulo?
+El Bitwarden SDK server solo habla HTTPS, así que necesita un certificado, y crear certificados es
+el trabajo de cert-manager. La alternativa, un certificado hecho a mano con `openssl`, es una cosa
+más creada fuera de git, y tendrías que acordarte de renovarlo. El capítulo 5 necesitaba
+cert-manager de todos modos.
+
+El certificado es **autofirmado y de larga duración** (10 años) a propósito. Solo se usa dentro del
+clúster, entre dos componentes, y el store confía exactamente en ese certificado. El SDK server lee
+su certificado solo al arrancar, así que un certificado corto renovado no se usaría hasta que el pod
+se reiniciara.
+
+### ¿Qué versiones, y por qué?
+Las más recientes, comprobadas con la tabla de versiones de Kubernetes soportadas de cada proyecto.
+External Secrets 2.14 está probado con Kubernetes 1.37. cert-manager 1.21 llega hasta Kubernetes
+1.36: su siguiente versión (1.22) añade la 1.37, y pasar a ella será un cambio de una línea en
+`apps/cert-manager.yaml`. cert-manager solo usa APIs estables de Kubernetes, así que una versión un
+paso por detrás es un riesgo pequeño.
+
+### ¿Por qué un solo ClusterSecretStore y un solo proyecto?
+Un proyecto y una cuenta de máquina suponen un token que crear a mano y un store que puede usar
+cualquier namespace. El coste: el ExternalSecret de cualquier aplicación podría pedir cualquier
+secreto del proyecto. Con un solo administrador, no es problema. Con varios equipos, o aplicaciones
+en las que confías menos, da a cada uno su propio proyecto, cuenta de máquina y SecretStore (por
+namespace), para que un token filtrado llegue a menos.
+
+### ¿Por qué referirse a los secretos por nombre y no por id?
+Un nombre como `demo-message` se lee bien en git y en las revisiones. Ves qué usa una aplicación sin
+abrir Bitwarden. Los nombres deben ser únicos dentro del proyecto, y External Secrets da un error si
+dos secretos comparten uno. Un id sobrevive a un cambio de nombre, pero git solo muestra ids opacos.
