@@ -168,3 +168,57 @@ machine would bring a replicated storage choice, and that's on the roadmap.
 So installing again (on a rebuilt machine) gives the same cluster as before. Upgrades happen when
 you choose to, one minor version at a time, after a snapshot. That's covered in the Day 2 chapter.
 
+
+## Chapter 3 · GitOps
+
+### Why ArgoCD and not Flux?
+Both are mature, open-source GitOps tools from the CNCF, and both would do the job. The guide picks
+**ArgoCD** for its **web UI**: you see every app, its sync state and the difference between git and
+the cluster, which helps a lot while you learn. **Flux** has no built-in UI and is driven by its CLI
+and Kubernetes objects. It's lighter, and a great choice if you prefer working in the terminal.
+
+### Which ArgoCD version, and why?
+The newest release that's **tested on your Kubernetes version**. ArgoCD publishes the versions each
+release is tested against, and at the time of writing only 3.6 lists Kubernetes 1.37, the version
+k3s installs in chapter 2. The guide pins its first patch release (3.6.1), through the Helm chart
+version that ships it. Check the table in ArgoCD's docs ("Tested Kubernetes versions") when you
+upgrade either one.
+
+### Why install it with Helm and then let ArgoCD manage itself?
+Something has to install ArgoCD before ArgoCD can install anything, so the first install is by
+hand. Helm makes that one command, with your settings in a values file in git. Then
+`apps/argocd.yaml` gives ArgoCD the same chart, version and values, and ArgoCD takes over.
+
+| Option | Why not (here) |
+|---|---|
+| **Helm, then upgrades by hand** | Works, but ArgoCD itself sits outside GitOps: its version and settings live in your shell history, not in a commit. |
+| **The plain install manifest** (`kubectl apply -f install.yaml`) | No Helm, but every setting becomes a patch on a large YAML file, which is harder than a values file. |
+
+The catch: once ArgoCD manages itself, a bad change to its own settings can break the tool you'd
+use to fix it. If that happens, `helm upgrade` with the last good values file brings it back.
+
+### Why a deploy key to read the repository?
+A **deploy key** is an SSH key that reaches **one repository** and, unless you allow it, can
+**only read**. That's exactly what ArgoCD needs. A leaked key exposes your config, and nothing else
+on your GitHub account.
+
+| Option | Why not (here) |
+|---|---|
+| **A GitHub App** | Short-lived tokens and fine-grained permissions, and one app can cover many repositories. Worth it with several repositories, but more setup for one. |
+| **A fine-grained personal access token** | Tied to your user account, and it expires, so it needs rotating by hand. |
+| **A public repository** | No credentials at all, but your config names your hosts and structure. |
+
+The private key is never saved anywhere but the cluster. If you lose it, you make a new one: a
+deploy key is cheap to replace.
+
+### Why "app of apps" and not an ApplicationSet?
+An **ApplicationSet** generates Applications from a pattern, for example one per folder under
+`apps/`. It's less YAML when you have many similar apps, but it's one more concept, and per-app
+settings get harder. With **app of apps**, each app is one plain, readable Application file. It's
+easy to see why something runs: there's a file for it. You can move to ApplicationSets later
+without changing the apps themselves.
+
+### Why port-forward to reach the UI?
+Because nothing is exposed on the network yet, and there's nothing to undo later. Opening the UI on
+your LAN now would mean plain HTTP, so your admin password would cross the network unencrypted.
+Chapter 5 gives ArgoCD a proper `https://` address with a real certificate.

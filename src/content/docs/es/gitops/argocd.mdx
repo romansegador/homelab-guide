@@ -1,0 +1,199 @@
+---
+title: GitOps con ArgoCD
+description: Instala ArgoCD, dale acceso de solo lectura a tu repositorio privado de configuración y entrega el clúster a git con el patrón «app of apps». ArgoCD también se gestiona a sí mismo.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+:::note[Traducción asistida por IA]
+Esta página es una traducción asistida por IA del original en inglés, que es la referencia. Si
+ves un error, abre un issue o un PR.
+:::
+
+A partir de este capítulo dejas de cambiar el clúster a mano. Cambias ficheros en tu repositorio
+privado, haces push, y **ArgoCD** hace que el clúster coincida. Al terminar tendrás:
+- **ArgoCD** funcionando en el clúster, con la versión fijada,
+- acceso de solo lectura a tu repositorio privado, con una **deploy key**,
+- una **app raíz** que convierte cada fichero de `apps/` en una app que ArgoCD ejecuta («app of apps»),
+- ArgoCD **gestionando su propia instalación** desde el repositorio, así que actualizarlo es un commit,
+- una pequeña app de demostración que cambias y después quitas, solo con git.
+
+<Aside type="tip" title="Hazlo con un agente de IA">
+Este capítulo tiene una skill para agentes, `gitops`. Consulta [Usar con un agente de IA](/es/start-here/agents/).
+</Aside>
+
+**Probado con:** ArgoCD v3.6.1 (chart de Helm 10.12.1) sobre k3s v1.37.2+k3s1, helm 4.3.
+
+## Antes, unas ideas
+
+### GitOps
+Tu repositorio dice qué debe funcionar. **ArgoCD** corre en el clúster, lee el repositorio, lo
+compara con lo que está funcionando y **sincroniza** la diferencia. Dos ajustes hacen de git la
+única puerta de entrada:
+- **prune:** lo que se quita de git se quita del clúster,
+- **self-heal:** lo que se cambia a mano en el clúster vuelve a lo que dice git.
+
+Así tienes un historial de cada cambio, un botón para deshacer (`git revert`) y un clúster que
+puedes reconstruir apuntando un ArgoCD nuevo al mismo repositorio.
+
+### Applications y la «app of apps»
+La unidad de ArgoCD es una **Application**: «toma esta carpeta (o chart de Helm) y ponla en el
+clúster». Una Application es a su vez un pequeño fichero YAML, así que ArgoCD también puede
+gestionar Applications. Creas a mano una Application **raíz**. Vigila la carpeta `apps/`, y cada
+fichero de ahí es la Application de una app. Añadir una app es añadir un fichero.
+
+```text
+your-config-repo/
+├── bootstrap/                   se hace una vez, a mano
+│   ├── root.yaml                la Application raíz
+│   └── add-repo-key.sh          da a ArgoCD acceso de lectura al repositorio
+├── apps/                        una Application por app; la raíz vigila esta carpeta
+│   ├── argocd.yaml              el propio ArgoCD
+│   └── hello.yaml               la app de demostración
+└── manifests/                   lo que ejecuta cada app
+    ├── argocd/values.yaml       ajustes del chart de Helm de ArgoCD
+    └── hello/hello.yaml         los ficheros de Kubernetes de la app de demostración
+```
+
+### ArgoCD se gestiona a sí mismo
+Instalas ArgoCD una vez con **Helm**, desde tu portátil. Después `apps/argocd.yaml` apunta ArgoCD
+al mismo chart, versión y fichero de valores, y ArgoCD se hace cargo de su propia instalación. A
+partir de ahí, actualizar ArgoCD o cambiar sus ajustes es un commit, como en cualquier otra app.
+
+El razonamiento detrás de cada elección está en las [preguntas frecuentes](/es/start-here/faq/#capítulo-3--gitops).
+
+## Antes de empezar
+
+- [ ] El capítulo 2 terminado: `kubectl get nodes` muestra tu clúster desde el portátil, y `helm`
+      está instalado.
+- [ ] Tu repositorio privado en GitHub, con `git push` funcionando desde tu portátil.
+
+## Prepáralo
+
+<Steps>
+
+1. **Añade los ficheros a tu repositorio.** Copia el contenido de
+   [`examples/03-gitops`](https://github.com/romansegador/homelab-guide/tree/main/examples/03-gitops)
+   en la raíz de tu repositorio privado: `apps/`, `bootstrap/` y `manifests/`.
+   Ejecuta los comandos de portátil de este capítulo desde la carpeta raíz de tu repositorio.
+
+   Después rellena dos valores:
+   - En `bootstrap/root.yaml`, `apps/argocd.yaml` y `apps/hello.yaml`, sustituye
+     `<YOUR_CONFIG_REPO_URL>` por la dirección **SSH** de tu repositorio, por ejemplo
+     `git@github.com:<YOUR_GITHUB_USER>/<YOUR_CONFIG_REPO>.git`. GitHub la muestra en
+     *Code → SSH*.
+   - En `manifests/argocd/values.yaml`, pon en `domain` la dirección que tendrá ArgoCD en el
+     capítulo 5, por ejemplo `argocd.home.example.com`.
+
+   Haz commit y push a `main`: ArgoCD lee el repositorio desde GitHub, no desde tu portátil. Si
+   trabajas con pull requests, haz merge antes del paso 5.
+
+2. **Instala ArgoCD** con Helm, en la versión fijada en `apps/argocd.yaml`:
+
+   ```sh title="Portátil"
+   helm repo add argo https://argoproj.github.io/argo-helm
+   helm repo update argo
+   helm install argocd argo/argo-cd --version 10.12.1 --namespace argocd --create-namespace --values manifests/argocd/values.yaml
+   kubectl -n argocd wait --for=condition=Available deployment --all --timeout=300s
+   ```
+
+   El último comando espera a que todas las partes de ArgoCD estén listas, normalmente en uno o dos
+   minutos.
+
+3. **Da a ArgoCD acceso de lectura a tu repositorio.** El script crea una clave SSH nueva, guarda
+   su mitad privada en el clúster sin mostrarla e imprime la mitad pública:
+
+   ```sh title="Portátil"
+   bash bootstrap/add-repo-key.sh git@github.com:<YOUR_GITHUB_USER>/<YOUR_CONFIG_REPO>.git
+   ```
+
+   En GitHub, abre *Settings → Deploy keys → Add deploy key* de tu repositorio. Pega la clave
+   pública, llámala `argocd` y deja **Allow write access** sin marcar.
+
+   No hay nada que guardar en tu gestor de contraseñas. Si pierdes la clave o reconstruyes el
+   clúster, vuelve a ejecutar el script y sustituye la deploy key en GitHub.
+
+4. **Abre la interfaz web.** Copia la contraseña de admin al portapapeles y guárdala en tu gestor
+   de contraseñas como «ArgoCD admin (lab-1)»:
+
+   ```sh title="Portátil"
+   kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d | pbcopy
+   ```
+
+   Después redirige un puerto local a ArgoCD. Déjalo funcionando en su propia terminal:
+
+   ```sh title="Portátil"
+   kubectl -n argocd port-forward service/argocd-server 8080:443
+   ```
+
+   Abre [https://localhost:8080](https://localhost:8080) y entra como `admin` con esa contraseña.
+   El navegador avisa del certificado: ArgoCD usa uno autofirmado hasta el capítulo 5. Acéptalo
+   para `localhost`. Por ahora la interfaz está vacía.
+
+5. **Entrega el clúster a git.** Crea la Application raíz, la única que creas a mano:
+
+   ```sh title="Portátil"
+   kubectl apply -f bootstrap/root.yaml
+   kubectl -n argocd get applications
+   ```
+
+   En un minuto, tres Applications muestran `Synced` y `Healthy`: `root`, `argocd` y `hello`.
+   Repite el segundo comando hasta que lo hagan, o míralas aparecer en la interfaz. Si una
+   Application muestra un error sobre el repositorio, revisa la deploy key del paso 3.
+
+   A partir de ahora, ArgoCD gestiona su propia instalación. No vuelvas a ejecutar `helm upgrade`
+   sobre él: para cambiar ArgoCD, edita `manifests/argocd/values.yaml` o la versión en
+   `apps/argocd.yaml` y haz push.
+
+</Steps>
+
+## Compruébalo
+
+**La app de demostración funciona:**
+
+```sh title="Portátil"
+kubectl -n hello get pods
+```
+
+Hay un pod `hello` en `Running`.
+
+**Self-heal deshace los cambios hechos a mano.** Escala la app a 3 copias con kubectl:
+
+```sh title="Portátil"
+kubectl -n hello scale deployment hello --replicas=3
+kubectl -n hello get deployment hello
+```
+
+Repite el segundo comando tras unos segundos: ArgoCD la ha devuelto a `1`, porque eso es lo que
+dice git.
+
+**Un commit cambia el clúster.** En `manifests/hello/hello.yaml`, cambia `replicas: 1` por
+`replicas: 2`, haz commit y push. ArgoCD revisa el repositorio cada 3 minutos. Para no esperar,
+pulsa **Refresh** en la app `hello` de la interfaz. Después:
+
+```sh title="Portátil"
+kubectl -n hello get pods
+```
+
+Hay dos pods en `Running`.
+
+**Quitar un fichero quita la app.** Borra `apps/hello.yaml` y la carpeta `manifests/hello/`, haz
+commit y push. Tras la siguiente sincronización (o un **Refresh** en `root`), la app `hello` y su
+namespace han desaparecido:
+
+```sh title="Portátil"
+kubectl -n argocd get applications
+kubectl get namespace hello
+```
+
+El primero lista solo `root` y `argocd`. El segundo dice que el namespace está `NotFound`.
+
+## Antes de seguir
+
+- [ ] Todas las comprobaciones pasan, y la app `hello` ha desaparecido.
+- [ ] En tu gestor de contraseñas: la **contraseña de admin de ArgoCD**.
+- [ ] `apps/`, `bootstrap/` y `manifests/` con commit en tu repositorio privado. No contienen
+      secretos: la deploy key solo vive en el clúster.
+
+A partir de ahora, todo cambio en el clúster pasa por git. Siguiente: secretos, con un gestor de
+secretos y External Secrets.

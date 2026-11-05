@@ -1,0 +1,23 @@
+# A tiny demo app, to see GitOps work: change manifests/hello/ and push, and the cluster follows.
+# Delete this file and push, and the app is removed. The finalizer below makes ArgoCD delete the
+# app's resources along with the Application.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hello
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: <YOUR_CONFIG_REPO_URL>
+    targetRevision: main
+    path: manifests/hello
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: hello
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
