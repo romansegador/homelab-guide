@@ -1,0 +1,66 @@
+# whoami: a tiny web server that answers with details about the request. Its own namespace, so
+# removing the app removes everything in one go. New in chapter 5: the Ingress at the end.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hello
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello
+  namespace: hello
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hello
+  template:
+    metadata:
+      labels:
+        app: hello
+    spec:
+      containers:
+        - name: whoami
+          image: traefik/whoami:v1.12.0
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 32Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello
+  namespace: hello
+spec:
+  selector:
+    app: hello
+  ports:
+    - port: 80
+      targetPort: 80
+---
+# The app's address. No TLS settings and no DNS change: the wildcard DNS record already points
+# every *.lab.home.example.com name at the cluster, and the wildcard certificate covers it.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hello
+  namespace: hello
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: hello.lab.home.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hello
+                port:
+                  number: 80

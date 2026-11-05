@@ -1,0 +1,19 @@
+# The DNS provider's API token, copied from the secrets manager into cert-manager's namespace.
+# The value lives in Bitwarden under this name, never in git. This example uses Cloudflare: for
+# another provider, see cert-manager's DNS01 docs and change the issuers to match.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: cloudflare-dns-api-token
+  namespace: cert-manager
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: bitwarden
+  target:
+    name: cloudflare-dns-api-token
+  data:
+    - secretKey: api-token
+      remoteRef:
+        key: cloudflare-dns-api-token

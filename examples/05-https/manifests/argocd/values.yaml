@@ -1,0 +1,26 @@
+# Values for the ArgoCD Helm chart (argo/argo-cd). ArgoCD manages its own install from this file
+# (see apps/argocd.yaml). Every other setting keeps the chart's default.
+
+global:
+  # ArgoCD's address. Chapter 5 gives it HTTPS and a DNS name under the cluster's wildcard.
+  domain: argocd.lab.home.example.com
+
+configs:
+  params:
+    # Traefik handles HTTPS in front of ArgoCD, so ArgoCD itself serves plain HTTP inside the
+    # cluster.
+    server.insecure: true
+
+server:
+  # An Ingress for global.domain. It needs no TLS settings: Traefik's default certificate covers it.
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+
+# No single sign-on: you log in as the built-in admin user.
+dex:
+  enabled: false
+
+# No Slack or email notifications yet.
+notifications:
+  enabled: false

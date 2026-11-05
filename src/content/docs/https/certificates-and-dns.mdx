@@ -1,0 +1,191 @@
+---
+title: HTTPS and private DNS
+description: Give every app in the cluster a private name and a trusted HTTPS certificate, with one wildcard DNS record, one wildcard Let's Encrypt certificate and nothing exposed to the internet.
+---
+
+import { Steps, Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Until now you've reached the cluster with `kubectl port-forward`. This chapter gives every app a
+real address on your network, like `argocd.lab.home.example.com`, with a certificate your browser
+trusts. Nothing is exposed to the internet. At the end you'll have:
+- one **wildcard DNS record** in your internal DNS, so every `*.lab.home.example.com` name reaches
+  the cluster,
+- one **wildcard certificate** from Let's Encrypt, made and renewed by cert-manager,
+- **Traefik** (which k3s already runs) using that certificate for every app, and redirecting
+  `http://` to `https://`,
+- **ArgoCD** at its own HTTPS address, and a demo app that shows a new app needs only an Ingress.
+
+<Aside type="tip" title="Do it with an AI agent">
+This chapter has an agent skill, `https`. See [Use with an AI agent](/start-here/agents/).
+</Aside>
+
+**Tested with:** cert-manager 1.21.3, Traefik 3.7.15 (k3s's Traefik chart 41.6.1), ArgoCD 3.6.1,
+on k3s v1.37.2+k3s1. DNS provider: Cloudflare.
+
+## A few ideas first
+
+### The path of a request
+```text
+browser ── "where is argocd.lab.home.example.com?" ──▶ internal DNS: *.lab.home.example.com → 192.168.10.50
+browser ── https://argocd.lab.home.example.com ─────▶ Traefik on the cluster (port 443)
+                                                        │ shows the wildcard certificate
+                                                        │ reads the Ingress for that name
+                                                        ▼
+                                                      ArgoCD's Service
+```
+
+- **Internal DNS** turns names into your cluster's address. One **wildcard** record covers every
+  name under `lab.home.example.com`, so a new app never needs a DNS change.
+- **Traefik** is the cluster's front door, on ports 80 and 443. k3s installs it.
+- An **Ingress** is a small file next to each app: "send requests for this name to this Service".
+- A **wildcard certificate** for `*.lab.home.example.com` covers every one of those names.
+
+### Getting a certificate for private names
+Let's Encrypt only gives a certificate to someone who controls the domain. It usually checks by
+connecting to your server, which a private name can't allow. So it uses the **DNS-01 challenge**
+instead: cert-manager creates a temporary record in your **public** DNS zone, through your DNS
+provider's API, and Let's Encrypt looks it up. Let's Encrypt never connects to your network.
+
+Every certificate Let's Encrypt issues is also published in public **certificate transparency
+logs**, which anyone can search. One wildcard certificate means those logs show
+`*.lab.home.example.com` and not the name of each app you run.
+
+The reasoning behind each choice is in the [FAQ](/start-here/faq/#chapter-5--https-and-private-dns).
+
+## Before you start
+
+- [ ] Chapter 4 done: the `bitwarden` ClusterSecretStore is `Valid`.
+- [ ] Your domain's DNS at a provider with an API. This chapter uses **Cloudflare**. For another
+      provider, see cert-manager's [DNS01 providers](https://cert-manager.io/docs/configuration/acme/dns01/)
+      and change the issuers to match.
+- [ ] Access to your internal DNS server, and your laptop using it.
+- [ ] Your private subdomain from the [plan](/plan/dns-and-certificates/), for example
+      `lab.home.example.com`.
+
+## Set it up
+
+<Steps>
+
+1. **Create a DNS API token.** In the Cloudflare dashboard, open **My Profile → API Tokens →
+   Create Token**, and use the **Edit zone DNS** template:
+   - **Permissions:** Zone · DNS · Edit. Add Zone · Zone · Read as well.
+   - **Zone Resources:** Include · Specific zone · your domain (`example.com`).
+
+   Create it, and copy the token. Cloudflare shows it once. In **Bitwarden Secrets Manager**, add
+   it to the cluster's project (`lab-1`) as a new secret named `cloudflare-dns-api-token`.
+   External Secrets copies it from there.
+
+   Make a new token for the cluster, even if another service already has one. Then you can revoke
+   either of them without breaking the other.
+
+2. **Add the wildcard DNS record.** In your internal DNS, point every name under your private
+   subdomain at the cluster machine:
+
+   <Tabs syncKey="dns">
+   <TabItem label="bind9">
+   Add this line to your `home.example.com` zone file, increase the zone's serial number, and
+   reload bind9:
+
+   ```text
+   *.lab                   IN      A         192.168.10.50
+   ```
+   </TabItem>
+   <TabItem label="AdGuard Home">
+   **Filters → DNS rewrites → Add DNS rewrite**: domain `*.lab.home.example.com`, answer
+   `192.168.10.50`.
+   </TabItem>
+   <TabItem label="Pi-hole / dnsmasq">
+   Pi-hole's local DNS records page doesn't take wildcards. Add a dnsmasq line instead. In Pi-hole
+   v6: **Settings → All settings → Miscellaneous → misc.dnsmasq_lines**:
+
+   ```text
+   address=/lab.home.example.com/192.168.10.50
+   ```
+   </TabItem>
+   </Tabs>
+
+   Check it with any name under the subdomain:
+
+   ```sh title="Laptop"
+   dig +short anything.lab.home.example.com
+   ```
+
+   It prints `192.168.10.50`.
+
+3. **Add the files to your repository.** Copy
+   [`examples/05-https`](https://github.com/romansegador/homelab-guide/tree/main/examples/05-https)
+   into your repository, merging its folders with yours. Two files replace ones you already have:
+   - `apps/cert-manager.yaml` adds two lines under `extraArgs`. Your internal DNS answers for
+     `home.example.com` and doesn't know the challenge record, so cert-manager checks the
+     challenge on public DNS servers instead.
+   - `manifests/argocd/values.yaml` gives ArgoCD an Ingress, and lets Traefik handle HTTPS in front
+     of it.
+
+   Then fill in your values:
+   - In `apps/https.yaml` and `apps/hello.yaml`, replace `<YOUR_CONFIG_REPO_URL>`, as before.
+   - Replace `lab.home.example.com` with your private subdomain in
+     `manifests/https/wildcard-certificate.yaml`, `manifests/argocd/values.yaml` and
+     `manifests/hello/hello.yaml`.
+
+   Commit and push to `main`.
+
+4. **Watch the test certificate arrive.** ArgoCD applies the new files, and cert-manager asks
+   Let's Encrypt's **test service** for the certificate. It takes two or three minutes:
+
+   ```sh title="Laptop"
+   kubectl -n argocd get applications
+   kubectl -n kube-system get certificate wildcard
+   ```
+
+   Every Application is `Synced` and `Healthy`, and the certificate shows `READY` `True`. Browsers
+   don't trust test certificates, so this proves the setup without using up your real requests.
+
+5. **Switch to the real certificate.** In `manifests/https/wildcard-certificate.yaml`, change
+   `name: letsencrypt-staging` to `name: letsencrypt`, then commit and push. cert-manager asks
+   for a new certificate straight away. After a minute or two:
+
+   ```sh title="Laptop"
+   kubectl -n kube-system get certificate wildcard
+   curl -sS -o /dev/null -w '%{http_code}\n' https://hello.lab.home.example.com
+   ```
+
+   The certificate is `READY` `True` again, and `curl` prints `200`. Unlike your browser, `curl`
+   refuses an untrusted certificate, so a `200` means the real one is in place.
+
+</Steps>
+
+## Check it
+
+**ArgoCD has an address.** Open `https://argocd.lab.home.example.com`. The browser shows no
+warning, and you log in as before. You don't need the port-forward any more.
+
+**`http://` goes to `https://`:**
+
+```sh title="Laptop"
+curl -sI http://hello.lab.home.example.com
+```
+
+The first line is a permanent redirect (`301` or `308`), and the `Location` line starts with
+`https://`.
+
+**The demo app answers over HTTPS:**
+
+```sh title="Laptop"
+curl -sS https://hello.lab.home.example.com
+```
+
+whoami prints details about your request, starting with `Hostname: hello-…`.
+
+**Remove the demo.** Delete `apps/hello.yaml` and `manifests/hello/`, commit and push. After the
+next sync, `https://hello.lab.home.example.com` answers `404 page not found`: the name still
+reaches Traefik, but no app claims it any more.
+
+## Before you move on
+
+- [ ] All the checks pass, the certificate comes from the real Let's Encrypt, and the demo is
+      removed.
+- [ ] In Bitwarden Secrets Manager: `cloudflare-dns-api-token`.
+- [ ] The new and changed files committed. They hold no secret values.
+
+From now on, a new app gets its address from one Ingress in git, with no DNS change and no new
+certificate. cert-manager renews the certificate on its own, well before it expires.

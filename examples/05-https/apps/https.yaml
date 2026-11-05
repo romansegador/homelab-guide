@@ -1,0 +1,29 @@
+# Everything HTTPS needs: the DNS provider's API token (from the secrets manager), Let's Encrypt
+# issuers, one wildcard certificate, and Traefik's settings. Each file in manifests/https names its
+# own namespace. ArgoCD skips its dry run for kinds that don't exist yet, and retries.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: https
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: <YOUR_CONFIG_REPO_URL>
+    targetRevision: main
+    path: manifests/https
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

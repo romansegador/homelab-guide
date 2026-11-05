@@ -1,0 +1,34 @@
+# cert-manager issues and renews TLS certificates inside the cluster. Same app as chapter 4, with
+# two new lines under extraArgs (see below). Replace your apps/cert-manager.yaml with this file.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+    targetRevision: v1.21.3
+    helm:
+      valuesObject:
+        crds:
+          enabled: true   # install cert-manager's CRDs with the chart
+          keep: true      # and keep them if the app is ever removed, so certificates survive
+        # New in chapter 5. Before asking Let's Encrypt to check, cert-manager looks up the
+        # challenge record itself. Your internal DNS answers for home.example.com and doesn't
+        # know that record, so cert-manager asks public DNS servers instead.
+        extraArgs:
+          - --dns01-recursive-nameservers-only
+          - --dns01-recursive-nameservers=1.1.1.1:53,1.0.0.1:53
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

@@ -1,0 +1,23 @@
+# The demo app from chapter 3, back with an address: hello.lab.home.example.com. It shows that a
+# new app needs only an Ingress, with no DNS change and no new certificate. The finalizer makes
+# ArgoCD delete the app's resources when you delete this file.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hello
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: <YOUR_CONFIG_REPO_URL>
+    targetRevision: main
+    path: manifests/hello
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: hello
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

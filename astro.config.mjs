@@ -69,6 +69,11 @@ export default defineConfig({
 					translations: { es: '4 · Secretos' },
 					items: [{ slug: 'secrets/external-secrets' }],
 				},
+				{
+					label: '5 · HTTPS',
+					translations: { es: '5 · HTTPS' },
+					items: [{ slug: 'https/certificates-and-dns' }],
+				},
 			],
 		}),
 	],
