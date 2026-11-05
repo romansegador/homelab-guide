@@ -186,3 +186,60 @@ Para que instalar de nuevo (en una máquina reconstruida) dé el mismo clúster 
 actualizaciones ocurren cuando tú decides, de una versión menor en una, después de una instantánea.
 Se trata en el capítulo de operación diaria.
 
+
+## Capítulo 3 · GitOps
+
+### ¿Por qué ArgoCD y no Flux?
+Los dos son herramientas GitOps maduras, de código abierto y de la CNCF, y cualquiera serviría. La
+guía elige **ArgoCD** por su **interfaz web**: ves cada app, su estado de sincronización y la
+diferencia entre git y el clúster, y eso ayuda mucho mientras aprendes. **Flux** no trae interfaz y
+se maneja con su CLI y con objetos de Kubernetes. Es más ligero, y una gran elección si prefieres
+trabajar en la terminal.
+
+### ¿Qué versión de ArgoCD, y por qué?
+La más reciente **probada con tu versión de Kubernetes**. ArgoCD publica con qué versiones se prueba
+cada release, y al escribir esto solo la 3.6 incluye Kubernetes 1.37, la versión que instala k3s en
+el capítulo 2. La guía fija su primera versión de parches (3.6.1), a través de la versión del chart
+de Helm que la trae. Revisa la tabla de la documentación de ArgoCD («Tested Kubernetes versions»)
+cuando actualices cualquiera de los dos.
+
+### ¿Por qué instalarlo con Helm y después dejar que ArgoCD se gestione a sí mismo?
+Algo tiene que instalar ArgoCD antes de que ArgoCD pueda instalar nada, así que la primera
+instalación es a mano. Helm la reduce a un comando, con tus ajustes en un fichero de valores en
+git. Después `apps/argocd.yaml` le da a ArgoCD el mismo chart, versión y valores, y ArgoCD se hace
+cargo.
+
+| Opción | Por qué no (aquí) |
+|---|---|
+| **Helm, y actualizaciones a mano** | Funciona, pero ArgoCD queda fuera de GitOps: su versión y sus ajustes viven en el historial de tu terminal, no en un commit. |
+| **El manifiesto de instalación** (`kubectl apply -f install.yaml`) | Sin Helm, pero cada ajuste se convierte en un parche sobre un YAML grande, y eso es más difícil que un fichero de valores. |
+
+La pega: cuando ArgoCD se gestiona a sí mismo, un cambio malo en sus propios ajustes puede romper
+la herramienta con la que lo arreglarías. Si pasa, `helm upgrade` con el último fichero de valores
+bueno lo recupera.
+
+### ¿Por qué una deploy key para leer el repositorio?
+Una **deploy key** es una clave SSH que llega a **un solo repositorio** y, salvo que lo permitas,
+**solo puede leer**. Es justo lo que necesita ArgoCD. Una clave filtrada expone tu configuración,
+y nada más de tu cuenta de GitHub.
+
+| Opción | Por qué no (aquí) |
+|---|---|
+| **Una GitHub App** | Tokens de corta duración y permisos finos, y una app puede cubrir muchos repositorios. Merece la pena con varios repositorios, pero es más preparación para uno. |
+| **Un token personal de acceso con permisos finos** | Va ligado a tu cuenta de usuario y caduca, así que hay que renovarlo a mano. |
+| **Un repositorio público** | Sin credenciales, pero tu configuración nombra tus máquinas y tu estructura. |
+
+La clave privada no se guarda en ningún sitio aparte del clúster. Si la pierdes, creas otra: una
+deploy key es fácil de sustituir.
+
+### ¿Por qué «app of apps» y no un ApplicationSet?
+Un **ApplicationSet** genera Applications a partir de un patrón, por ejemplo una por cada carpeta de
+`apps/`. Es menos YAML cuando tienes muchas apps parecidas, pero es un concepto más, y los ajustes
+por app se complican. Con **app of apps**, cada app es un fichero de Application sencillo y legible.
+Es fácil ver por qué algo está funcionando: hay un fichero para ello. Puedes pasar a ApplicationSets
+más adelante sin cambiar las apps.
+
+### ¿Por qué port-forward para llegar a la interfaz?
+Porque así no se expone nada en la red y no hay nada que deshacer después. Abrir la interfaz en tu
+red local ahora supondría HTTP sin cifrar, así que tu contraseña de admin cruzaría la red en claro.
+El capítulo 5 le da a ArgoCD una dirección `https://` con un certificado de verdad.

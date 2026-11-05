@@ -1,0 +1,16 @@
+# Values for the ArgoCD Helm chart (argo/argo-cd). Used twice: by the first install from your
+# laptop, and from then on by ArgoCD itself, which manages its own install from this file
+# (see apps/argocd.yaml). Every other setting keeps the chart's default.
+
+global:
+  # The address ArgoCD will have once chapter 5 adds HTTPS and DNS. Until then you reach it
+  # with kubectl port-forward.
+  domain: argocd.home.example.com
+
+# No single sign-on: you log in as the built-in admin user.
+dex:
+  enabled: false
+
+# No Slack or email notifications yet.
+notifications:
+  enabled: false

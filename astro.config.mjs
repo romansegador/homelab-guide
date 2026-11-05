@@ -59,6 +59,11 @@ export default defineConfig({
 					translations: { es: '2 · El clúster' },
 					items: [{ slug: 'cluster/install' }],
 				},
+				{
+					label: '3 · GitOps',
+					translations: { es: '3 · GitOps' },
+					items: [{ slug: 'gitops/argocd' }],
+				},
 			],
 		}),
 	],

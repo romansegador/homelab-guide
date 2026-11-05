@@ -1,0 +1,31 @@
+# ArgoCD manages its own install: the Helm chart at the pinned version below, with the values file
+# from this repository. To upgrade ArgoCD, change targetRevision and push.
+#
+# No resources finalizer here, on purpose: deleting this Application must never delete ArgoCD.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://argoproj.github.io/argo-helm
+      chart: argo-cd
+      targetRevision: 10.12.1   # chart version; it installs ArgoCD v3.6.1
+      helm:
+        releaseName: argocd     # the same name as the first helm install, so ArgoCD adopts it
+        valueFiles:
+          - $values/manifests/argocd/values.yaml
+    - repoURL: <YOUR_CONFIG_REPO_URL>
+      targetRevision: main
+      ref: values               # lets the source above read files from this repository
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true    # ArgoCD's own CRDs are too large for a client-side apply
