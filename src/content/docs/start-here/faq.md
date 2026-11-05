@@ -263,8 +263,8 @@ up until the pod restarted.
 ### Which versions, and why?
 The newest releases, checked against each project's table of supported Kubernetes versions.
 External Secrets 2.14 is tested on Kubernetes 1.37. cert-manager 1.21 lists Kubernetes up to 1.36:
-its next release (1.22) adds 1.37, and moving to it will be a one-line change in
-`apps/cert-manager.yaml`. cert-manager uses only stable Kubernetes APIs, so a version one step
+its next release (1.22) is expected around November 2026, with its Kubernetes versions not yet
+announced. Moving to it will be a one-line change in `apps/cert-manager.yaml`. cert-manager uses only stable Kubernetes APIs, so a version one step
 behind is a small risk.
 
 ### Why one ClusterSecretStore and one project?
@@ -277,3 +277,71 @@ project, machine account and (namespaced) SecretStore, so a leaked token reaches
 A name like `demo-message` is readable in git and in reviews. You can see what an app uses without
 opening Bitwarden. Names must be unique within the project, and External Secrets reports an error if
 two secrets share one. An id survives a rename, but git then shows only opaque ids.
+
+## Chapter 5 · HTTPS and private DNS
+
+### Why one wildcard certificate, and not one per app?
+Every certificate Let's Encrypt issues is published in public **certificate transparency logs**,
+however you proved you own the domain. One certificate per app would list each app's name there,
+and anyone could search for them (for example on crt.sh). The names don't let anyone in, because
+they only resolve on your LAN, but they do tell an attacker what software you run. A wildcard
+certificate shows only `*.lab.home.example.com`.
+
+The usual argument for per-app certificates is a smaller blast radius: a leaked key affects one app.
+That mostly disappears here. One Traefik ends HTTPS for every app, so it holds every key either way,
+and whoever compromises it gets them all. A wildcard also means one renewal to watch instead of many.
+
+Per-app certificates make sense when different teams or different ingress controllers own different
+apps. Then each Ingress can ask cert-manager for its own.
+
+### Doesn't the DNS challenge keep the names private?
+No. DNS-01 is only how you prove you own the domain: a temporary record in public DNS, instead of
+Let's Encrypt connecting to your server. It keeps your services **unreachable** from the internet.
+It doesn't keep them **unlisted**: the certificate itself still goes into the public logs.
+
+### Why does cert-manager check the challenge on public DNS servers?
+Before asking Let's Encrypt to check, cert-manager looks up the challenge record itself. By
+default it asks the cluster's DNS, which forwards to your internal DNS. Your internal DNS answers
+for `home.example.com` itself, so it says the record doesn't exist, and cert-manager waits forever.
+The two `extraArgs` lines make cert-manager ask public servers (Cloudflare's `1.1.1.1` here), which
+see what Let's Encrypt sees.
+
+If your internal DNS doesn't answer for your domain (for example, it only forwards), you don't need
+them, but they do no harm.
+
+### Why a new API token, and not reuse one?
+A token for each user means you can revoke or rotate one without breaking another. The token only
+gets DNS edit on one zone, so a leaked token can't touch the rest of your account. It can still
+change any record in that zone, which is why it lives in the secrets manager and nowhere else.
+
+### Why one DNS record by hand, and not external-dns?
+external-dns writes a DNS record for each Ingress automatically. With a wildcard record, there's
+nothing left for it to do: every name under the subdomain already reaches the cluster. It would add
+a component, and a key that can write to your internal DNS, to save one record you add once.
+
+external-dns makes sense when apps live on different machines, or when you can't use a wildcard.
+
+### Why change k3s's own Traefik, and not install another ingress controller?
+k3s already runs Traefik, and lets you change its settings with a `HelmChartConfig` file, which
+k3s merges into its own install. That file lives in git like everything else. Installing a second
+controller would mean disabling k3s's one, and then keeping your own up to date.
+
+### Why a standard Ingress, and not Gateway API or Traefik's IngressRoute?
+The standard Ingress is the simplest way to route a name to an app, every controller understands
+it, and most examples online use it. Gateway API is its newer, more capable successor, and Traefik
+supports it. It's worth a look once you need what it adds, such as splitting traffic between
+versions. IngressRoute is Traefik's own format: powerful, but it ties every app to Traefik.
+
+### Why start with Let's Encrypt's test service?
+The real service has strict limits. For example, it issues at most five identical certificates a
+week. A mistake while setting up can use them up, and lock you out for days. The test service has
+generous limits, so you fix mistakes there and switch to the real one once.
+
+### Why no email address in the issuers?
+Let's Encrypt used the address for expiry warnings, and it stopped sending them in 2025.
+cert-manager renews the certificate on its own, and the address isn't needed.
+
+### Why does ArgoCD serve plain HTTP now?
+Traefik handles HTTPS for every app with the same certificate, and passes requests on to the app
+inside the cluster. If ArgoCD kept its own self-signed HTTPS too, Traefik would have to be told to
+trust it. The `argocd` command-line tool also works through Traefik, with its `--grpc-web` flag.

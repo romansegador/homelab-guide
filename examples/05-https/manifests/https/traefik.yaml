@@ -1,0 +1,24 @@
+# Settings for the Traefik that k3s installs. k3s merges this into its own Traefik install and
+# upgrades it. Two changes:
+#   - plain http:// requests are redirected to https://,
+#   - the wildcard certificate becomes the default for every HTTPS request.
+# Traefik picks up a renewed certificate on its own.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    ports:
+      web:
+        http:
+          redirections:
+            entryPoint:
+              to: websecure
+              scheme: https
+              permanent: true
+    tlsStore:
+      default:
+        defaultCertificate:
+          secretName: wildcard-tls

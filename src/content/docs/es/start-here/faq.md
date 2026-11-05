@@ -288,8 +288,8 @@ se reiniciara.
 ### ¿Qué versiones, y por qué?
 Las más recientes, comprobadas con la tabla de versiones de Kubernetes soportadas de cada proyecto.
 External Secrets 2.14 está probado con Kubernetes 1.37. cert-manager 1.21 llega hasta Kubernetes
-1.36: su siguiente versión (1.22) añade la 1.37, y pasar a ella será un cambio de una línea en
-`apps/cert-manager.yaml`. cert-manager solo usa APIs estables de Kubernetes, así que una versión un
+1.36: su siguiente versión (1.22) se espera hacia noviembre de 2026, y aún no ha anunciado sus
+versiones de Kubernetes. Pasar a ella será un cambio de una línea en `apps/cert-manager.yaml`. cert-manager solo usa APIs estables de Kubernetes, así que una versión un
 paso por detrás es un riesgo pequeño.
 
 ### ¿Por qué un solo ClusterSecretStore y un solo proyecto?
@@ -303,3 +303,77 @@ namespace), para que un token filtrado llegue a menos.
 Un nombre como `demo-message` se lee bien en git y en las revisiones. Ves qué usa una aplicación sin
 abrir Bitwarden. Los nombres deben ser únicos dentro del proyecto, y External Secrets da un error si
 dos secretos comparten uno. Un id sobrevive a un cambio de nombre, pero git solo muestra ids opacos.
+
+## Capítulo 5 · HTTPS y DNS privado
+
+### ¿Por qué un certificado comodín, y no uno por aplicación?
+Cada certificado que emite Let's Encrypt se publica en los **registros públicos de transparencia de
+certificados**, sea cual sea la forma en que demostraste que el dominio es tuyo. Un certificado por
+aplicación pondría ahí el nombre de cada una, y cualquiera podría buscarlos (por ejemplo en crt.sh).
+Los nombres no dejan entrar a nadie, porque solo se resuelven en tu LAN, pero sí le dicen a un
+atacante qué software ejecutas. Un certificado comodín solo muestra `*.lab.home.example.com`.
+
+El argumento habitual a favor de un certificado por aplicación es un radio de daño menor: una clave
+filtrada afecta a una sola aplicación. Aquí eso casi desaparece. Un único Traefik gestiona HTTPS para
+todas las aplicaciones, así que guarda todas las claves en cualquier caso, y quien lo comprometa se
+las lleva todas. Un comodín, además, es una sola renovación que vigilar en vez de muchas.
+
+Un certificado por aplicación tiene sentido cuando distintos equipos o distintos controladores de
+ingress gestionan distintas aplicaciones. Entonces cada Ingress puede pedir el suyo a cert-manager.
+
+### ¿El reto DNS no mantiene los nombres en privado?
+No. DNS-01 es solo la forma de demostrar que el dominio es tuyo: un registro temporal en el DNS
+público, en vez de que Let's Encrypt se conecte a tu servidor. Mantiene tus servicios
+**inalcanzables** desde internet. No los mantiene **fuera de las listas**: el certificado en sí
+sigue yendo a los registros públicos.
+
+### ¿Por qué cert-manager comprueba el reto en servidores DNS públicos?
+Antes de pedir a Let's Encrypt que compruebe, cert-manager consulta él mismo el registro del reto.
+Por defecto pregunta al DNS del clúster, que reenvía a tu DNS interno. Tu DNS interno responde él
+mismo por `home.example.com`, así que dice que el registro no existe, y cert-manager espera para
+siempre. Las dos líneas de `extraArgs` hacen que cert-manager pregunte a servidores públicos (aquí,
+`1.1.1.1` de Cloudflare), que ven lo mismo que Let's Encrypt.
+
+Si tu DNS interno no responde por tu dominio (por ejemplo, solo reenvía), no las necesitas, pero no
+hacen daño.
+
+### ¿Por qué un token de API nuevo, y no reutilizar uno?
+Un token para cada usuario te permite revocar o rotar uno sin romper otro. El token solo puede
+editar el DNS de una zona, así que si se filtra no puede tocar el resto de tu cuenta. Aun así puede
+cambiar cualquier registro de esa zona, y por eso vive en el gestor de secretos y en ningún otro
+sitio.
+
+### ¿Por qué un registro DNS a mano, y no external-dns?
+external-dns escribe automáticamente un registro DNS para cada Ingress. Con un registro comodín no
+le queda nada que hacer: todo nombre bajo el subdominio ya llega al clúster. Añadiría un componente,
+y una clave capaz de escribir en tu DNS interno, para ahorrarte un registro que añades una vez.
+
+external-dns tiene sentido cuando las aplicaciones viven en máquinas distintas, o cuando no puedes
+usar un comodín.
+
+### ¿Por qué cambiar el Traefik de k3s, y no instalar otro controlador de ingress?
+k3s ya ejecuta Traefik, y te deja cambiar sus ajustes con un fichero `HelmChartConfig`, que k3s
+une con su propia instalación. Ese fichero vive en git como todo lo demás. Instalar un segundo
+controlador obligaría a desactivar el de k3s, y después a mantener el tuyo al día.
+
+### ¿Por qué un Ingress estándar, y no Gateway API o el IngressRoute de Traefik?
+El Ingress estándar es la forma más sencilla de dirigir un nombre a una aplicación, todos los
+controladores lo entienden, y la mayoría de ejemplos en internet lo usan. Gateway API es su sucesor,
+más nuevo y más capaz, y Traefik lo soporta. Merece la pena cuando necesites lo que añade, como
+repartir el tráfico entre versiones. IngressRoute es el formato propio de Traefik: potente, pero
+ata cada aplicación a Traefik.
+
+### ¿Por qué empezar con el servicio de pruebas de Let's Encrypt?
+El servicio real tiene límites estrictos. Por ejemplo, emite como mucho cinco certificados idénticos
+por semana. Un error mientras preparas todo puede gastarlos y bloquearte durante días. El servicio de
+pruebas tiene límites generosos, así que corriges los errores ahí y cambias al real una sola vez.
+
+### ¿Por qué los emisores no llevan dirección de correo?
+Let's Encrypt usaba la dirección para avisar de certificados a punto de caducar, y dejó de enviar
+esos avisos en 2025. cert-manager renueva el certificado solo, y la dirección no hace falta.
+
+### ¿Por qué ArgoCD sirve HTTP sin cifrar ahora?
+Traefik gestiona HTTPS para todas las aplicaciones con el mismo certificado, y pasa las peticiones a
+la aplicación dentro del clúster. Si ArgoCD mantuviera también su propio HTTPS autofirmado, habría
+que decirle a Traefik que confiara en él. La herramienta de línea de comandos `argocd` también
+funciona a través de Traefik, con su opción `--grpc-web`.

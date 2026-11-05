@@ -1,0 +1,19 @@
+# One certificate for every name the cluster serves. It lives next to Traefik (k3s runs Traefik in
+# kube-system), and traefik.yaml makes it Traefik's default, so every Ingress gets it without any
+# TLS settings of its own. cert-manager renews it well before it expires.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard
+  namespace: kube-system
+spec:
+  secretName: wildcard-tls
+  dnsNames:
+    - "*.lab.home.example.com"
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    kind: ClusterIssuer
+    # Start with the test service. Once the certificate is Ready, change this to letsencrypt.
+    name: letsencrypt-staging

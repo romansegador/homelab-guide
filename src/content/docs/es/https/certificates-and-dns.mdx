@@ -1,0 +1,202 @@
+---
+title: HTTPS y DNS privado
+description: Da a cada aplicación del clúster un nombre privado y un certificado HTTPS de confianza, con un registro DNS comodín, un certificado comodín de Let's Encrypt y nada expuesto a internet.
+---
+
+import { Steps, Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+:::note[Traducción asistida por IA]
+Esta página es una traducción asistida por IA del original en inglés, que es la referencia. Si
+ves un error, abre un issue o un PR.
+:::
+
+Hasta ahora has llegado al clúster con `kubectl port-forward`. Este capítulo da a cada aplicación
+una dirección real en tu red, como `argocd.lab.home.example.com`, con un certificado en el que
+confía tu navegador. Nada queda expuesto a internet. Al terminar tendrás:
+- un **registro DNS comodín** en tu DNS interno, para que todo nombre `*.lab.home.example.com`
+  llegue al clúster,
+- un **certificado comodín** de Let's Encrypt, que cert-manager crea y renueva,
+- **Traefik** (que k3s ya ejecuta) usando ese certificado para todas las aplicaciones, y
+  redirigiendo `http://` a `https://`,
+- **ArgoCD** en su propia dirección HTTPS, y una aplicación de demostración que muestra que una
+  aplicación nueva solo necesita un Ingress.
+
+<Aside type="tip" title="Hazlo con un agente de IA">
+Este capítulo tiene una skill para agentes, `https`. Consulta [Usar con un agente de IA](/es/start-here/agents/).
+</Aside>
+
+**Probado con:** cert-manager 1.21.3, Traefik 3.7.15 (chart de Traefik de k3s 41.6.1), ArgoCD
+3.6.1, sobre k3s v1.37.2+k3s1. Proveedor de DNS: Cloudflare.
+
+## Antes, unas ideas
+
+### El camino de una petición
+```text
+navegador ── "¿dónde está argocd.lab.home.example.com?" ──▶ DNS interno: *.lab.home.example.com → 192.168.10.50
+navegador ── https://argocd.lab.home.example.com ─────────▶ Traefik en el clúster (puerto 443)
+                                                              │ muestra el certificado comodín
+                                                              │ lee el Ingress de ese nombre
+                                                              ▼
+                                                            el Service de ArgoCD
+```
+
+- El **DNS interno** convierte nombres en la dirección de tu clúster. Un registro **comodín**
+  cubre todos los nombres bajo `lab.home.example.com`, así que una aplicación nueva nunca necesita
+  un cambio de DNS.
+- **Traefik** es la puerta de entrada del clúster, en los puertos 80 y 443. k3s lo instala.
+- Un **Ingress** es un pequeño fichero junto a cada aplicación: «envía las peticiones para este
+  nombre a este Service».
+- Un **certificado comodín** para `*.lab.home.example.com` cubre todos esos nombres.
+
+### Conseguir un certificado para nombres privados
+Let's Encrypt solo da un certificado a quien controla el dominio. Normalmente lo comprueba
+conectándose a tu servidor, algo que un nombre privado no permite. Así que usa el **reto DNS-01**:
+cert-manager crea un registro temporal en tu zona DNS **pública**, a través de la API de tu
+proveedor de DNS, y Let's Encrypt lo consulta. Let's Encrypt nunca se conecta a tu red.
+
+Además, cada certificado que emite Let's Encrypt se publica en los **registros públicos de
+transparencia de certificados**, donde cualquiera puede buscar. Un solo certificado comodín hace
+que esos registros muestren `*.lab.home.example.com`, y no el nombre de cada aplicación que
+ejecutas.
+
+El razonamiento detrás de cada elección está en las [preguntas frecuentes](/es/start-here/faq/#capítulo-5--https-y-dns-privado).
+
+## Antes de empezar
+
+- [ ] El capítulo 4 terminado: el ClusterSecretStore `bitwarden` está `Valid`.
+- [ ] El DNS de tu dominio en un proveedor con API. Este capítulo usa **Cloudflare**. Para otro
+      proveedor, consulta los [proveedores DNS01](https://cert-manager.io/docs/configuration/acme/dns01/)
+      de cert-manager y adapta los emisores.
+- [ ] Acceso a tu servidor DNS interno, y tu portátil usándolo.
+- [ ] Tu subdominio privado del [plan](/es/plan/dns-and-certificates/), por ejemplo
+      `lab.home.example.com`.
+
+## Prepáralo
+
+<Steps>
+
+1. **Crea un token de API de DNS.** En el panel de Cloudflare, abre **My Profile → API Tokens →
+   Create Token**, y usa la plantilla **Edit zone DNS**:
+   - **Permissions:** Zone · DNS · Edit. Añade también Zone · Zone · Read.
+   - **Zone Resources:** Include · Specific zone · tu dominio (`example.com`).
+
+   Créalo y copia el token. Cloudflare lo muestra una sola vez. En **Bitwarden Secrets Manager**,
+   añádelo al proyecto del clúster (`lab-1`) como un secreto nuevo llamado
+   `cloudflare-dns-api-token`. External Secrets lo copia desde ahí.
+
+   Crea un token nuevo para el clúster, aunque otro servicio ya tenga uno. Así puedes revocar
+   cualquiera de los dos sin romper el otro.
+
+2. **Añade el registro DNS comodín.** En tu DNS interno, apunta todos los nombres bajo tu
+   subdominio privado a la máquina del clúster:
+
+   <Tabs syncKey="dns">
+   <TabItem label="bind9">
+   Añade esta línea al fichero de tu zona `home.example.com`, aumenta el número de serie de la zona
+   y recarga bind9:
+
+   ```text
+   *.lab                   IN      A         192.168.10.50
+   ```
+   </TabItem>
+   <TabItem label="AdGuard Home">
+   **Filters → DNS rewrites → Add DNS rewrite**: dominio `*.lab.home.example.com`, respuesta
+   `192.168.10.50`.
+   </TabItem>
+   <TabItem label="Pi-hole / dnsmasq">
+   La página de registros DNS locales de Pi-hole no admite comodines. Añade una línea de dnsmasq.
+   En Pi-hole v6: **Settings → All settings → Miscellaneous → misc.dnsmasq_lines**:
+
+   ```text
+   address=/lab.home.example.com/192.168.10.50
+   ```
+   </TabItem>
+   </Tabs>
+
+   Compruébalo con cualquier nombre bajo el subdominio:
+
+   ```sh title="Portátil"
+   dig +short anything.lab.home.example.com
+   ```
+
+   Imprime `192.168.10.50`.
+
+3. **Añade los ficheros a tu repositorio.** Copia
+   [`examples/05-https`](https://github.com/romansegador/homelab-guide/tree/main/examples/05-https)
+   en tu repositorio, uniendo sus carpetas con las tuyas. Dos ficheros sustituyen a otros que ya
+   tienes:
+   - `apps/cert-manager.yaml` añade dos líneas bajo `extraArgs`. Tu DNS interno responde por
+     `home.example.com` y no conoce el registro del reto, así que cert-manager comprueba el reto en
+     servidores DNS públicos.
+   - `manifests/argocd/values.yaml` da a ArgoCD un Ingress, y deja que Traefik gestione HTTPS
+     delante de él.
+
+   Después rellena tus valores:
+   - En `apps/https.yaml` y `apps/hello.yaml`, sustituye `<YOUR_CONFIG_REPO_URL>`, como antes.
+   - Sustituye `lab.home.example.com` por tu subdominio privado en
+     `manifests/https/wildcard-certificate.yaml`, `manifests/argocd/values.yaml` y
+     `manifests/hello/hello.yaml`.
+
+   Haz commit y push a `main`.
+
+4. **Mira llegar el certificado de prueba.** ArgoCD aplica los ficheros nuevos, y cert-manager
+   pide el certificado al **servicio de pruebas** de Let's Encrypt. Tarda dos o tres minutos:
+
+   ```sh title="Portátil"
+   kubectl -n argocd get applications
+   kubectl -n kube-system get certificate wildcard
+   ```
+
+   Todas las Applications están `Synced` y `Healthy`, y el certificado muestra `READY` `True`. Los
+   navegadores no confían en los certificados de prueba, así que esto demuestra que todo funciona
+   sin gastar tus peticiones reales.
+
+5. **Cambia al certificado real.** En `manifests/https/wildcard-certificate.yaml`, cambia
+   `name: letsencrypt-staging` por `name: letsencrypt`, y haz commit y push. cert-manager pide un
+   certificado nuevo enseguida. Tras uno o dos minutos:
+
+   ```sh title="Portátil"
+   kubectl -n kube-system get certificate wildcard
+   curl -sS -o /dev/null -w '%{http_code}\n' https://hello.lab.home.example.com
+   ```
+
+   El certificado vuelve a estar `READY` `True`, y `curl` imprime `200`. A diferencia de tu
+   navegador, `curl` rechaza un certificado en el que no confía, así que un `200` significa que el
+   certificado real ya está puesto.
+
+</Steps>
+
+## Compruébalo
+
+**ArgoCD tiene dirección.** Abre `https://argocd.lab.home.example.com`. El navegador no muestra
+ningún aviso, y entras como antes. Ya no necesitas el port-forward.
+
+**`http://` va a `https://`:**
+
+```sh title="Portátil"
+curl -sI http://hello.lab.home.example.com
+```
+
+La primera línea dice `308 Permanent Redirect`, y la línea `Location` empieza por `https://`.
+
+**La aplicación de demostración responde por HTTPS:**
+
+```sh title="Portátil"
+curl -sS https://hello.lab.home.example.com
+```
+
+whoami imprime detalles de tu petición, empezando por `Hostname: hello-…`.
+
+**Quita la demostración.** Borra `apps/hello.yaml` y `manifests/hello/`, haz commit y push. Tras
+la siguiente sincronización, `https://hello.lab.home.example.com` responde `404 page not found`:
+el nombre sigue llegando a Traefik, pero ya no hay ninguna aplicación que lo reclame.
+
+## Antes de seguir
+
+- [ ] Todas las comprobaciones pasan, el certificado viene del Let's Encrypt real, y la
+      demostración está quitada.
+- [ ] En Bitwarden Secrets Manager: `cloudflare-dns-api-token`.
+- [ ] Los ficheros nuevos y cambiados con commit. No contienen valores secretos.
+
+A partir de ahora, una aplicación nueva consigue su dirección con un Ingress en git, sin cambios de
+DNS ni certificados nuevos. cert-manager renueva el certificado solo, mucho antes de que caduque.
