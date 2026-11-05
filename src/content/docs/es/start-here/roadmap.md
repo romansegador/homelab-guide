@@ -16,7 +16,7 @@ actualiza a medida que avanza la construcción.
 | 0 | **Plan** | Decisiones de arquitectura, dimensionado de la máquina, plan de DNS y certificados | ✅ Escrito |
 | 1 | **La máquina** | Una VM (o equipo físico) con un disco para el sistema y otro aparte para datos, con SSH endurecido | ✅ Probado (camino OpenTofu) |
 | 2 | **El clúster** | Un clúster k3s de un solo nodo, con `kubectl` y `k9s` en tu portátil | ✅ Probado |
-| 3 | **GitOps** | Un repositorio de configuración y ArgoCD, arrancado con el patrón «app of apps» | ✍️ Borrador, en pruebas |
+| 3 | **GitOps** | Un repositorio de configuración y ArgoCD, arrancado con el patrón «app of apps» | ✅ Probado |
 | 4 | **Secretos** | Un gestor de secretos externo sincronizado con el clúster (Bitwarden Secrets Manager + External Secrets Operator) | Previsto |
 | 5 | **HTTPS y DNS privado** | cert-manager con DNS-01, un certificado comodín, ingress y registros DNS internos | Previsto |
 | 6 | **Tu primera aplicación** | Esta misma guía: compilada por CI, publicada como imagen, desplegada por ArgoCD y servida por HTTPS | Previsto |
