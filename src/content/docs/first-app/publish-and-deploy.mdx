@@ -1,0 +1,168 @@
+---
+title: Your first app
+description: Build this guide into a container image with GitHub Actions, publish it to GitHub Container Registry on a version tag, and deploy it with ArgoCD at its own HTTPS address. Releasing is a tag and a one-line commit.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+Chapters 2 to 5 built the platform. Now it runs something real: **this guide**. It's a static
+website, so it's a good first app. It has no database and no secrets, but it goes all the way from
+source code to a page on your network. At the end you'll have:
+- a **GitHub Actions** workflow that builds the site into a container image,
+- the image published to **GitHub Container Registry** (`ghcr.io`) when you push a version tag,
+  like `v0.1.0`,
+- the guide running in your cluster, deployed by ArgoCD, at `https://guide.lab.home.example.com`,
+- a release routine: tag a version, then change one line in your config repository.
+
+<Aside type="tip" title="Do it with an AI agent">
+This chapter has an agent skill, `first-app`. See [Use with an AI agent](/start-here/agents/).
+</Aside>
+
+**Tested with:** node 26 and nginx 1.30 (unprivileged) images, GitHub Actions, on k3s
+v1.37.2+k3s1 with ArgoCD 3.6.1.
+
+## A few ideas first
+
+### From code to a running app
+```text
+your guide repository           GitHub                          your config repository        cluster
+┌──────────────────┐  git tag  ┌───────────────────────────┐   ┌───────────────────────┐    ┌────────┐
+│ site + Dockerfile│──v0.1.0──▶│ Actions builds the image  │   │ guide.yaml:           │    │ ArgoCD │
+└──────────────────┘           │ ghcr.io/…/homelab-guide   │◀──│  image: …:0.1.0       │◀───│ syncs  │
+                               │        :0.1.0             │   └───────────────────────┘    └────────┘
+                               └───────────────────────────┘          you change this line
+```
+
+- A **container image** is the app plus everything it needs to run, in one versioned package. Here
+  it's the site's HTML files and a small web server, nginx.
+- A **registry** stores images. **GitHub Container Registry** sits next to your code, is free for
+  public images, and GitHub Actions can push to it without any extra secret.
+- A **version tag** in git (`v0.1.0`) is how you say "release this". The workflow builds an image
+  with the same version (`0.1.0`), and that image never changes afterwards.
+- Your **config repository** says which version runs. Releasing is changing that one line. Rolling
+  back is `git revert`.
+
+### Why not `latest`?
+An image tag like `latest` points at whatever was published last. Then git can't say what's
+running, two restarts can run two different versions, and you can't roll back by commit. A fixed
+version in git keeps the cluster matching the repository, which is the point of GitOps.
+
+The reasoning behind each choice is in the [FAQ](/start-here/faq/#chapter-6--your-first-app).
+
+## Before you start
+
+- [ ] Chapter 5 done: your apps get HTTPS addresses under `*.lab.home.example.com`.
+- [ ] A GitHub account, and `git` working from your laptop.
+
+## Set it up
+
+<Steps>
+
+1. **Fork the guide.** On [the guide's repository](https://github.com/romansegador/homelab-guide),
+   click **Fork**. Your copy has everything this chapter uses:
+   - `Dockerfile`: builds the site, then copies it into an unprivileged nginx image.
+   - `nginx.conf`: serves the site, with its 404 page.
+   - `.github/workflows/image.yml`: builds the image on every pull request, and publishes it when
+     you push a version tag.
+
+   GitHub turns off workflows in new forks. Open your fork's **Actions** tab, and enable them.
+
+   Then clone your fork, and run the next step's commands in that folder:
+
+   ```sh title="Laptop"
+   git clone git@github.com:<YOUR_GITHUB_USER>/homelab-guide.git
+   cd homelab-guide
+   ```
+
+   <Aside>
+   Your own static site works too. Copy the three files into its repository, and change the
+   `Dockerfile`'s build commands to match your site.
+   </Aside>
+
+2. **Release the first version.** Tag the current code and push the tag:
+
+   ```sh title="Laptop"
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+
+   In your fork's **Actions** tab, the **Image** workflow runs for `v0.1.0`. It takes two or three
+   minutes. When it's green, your profile's **Packages** tab lists `homelab-guide`, version `0.1.0`.
+
+3. **Make the image public.** New packages start private, and your cluster has no credentials to
+   pull private ones. Open the package, then **Package settings → Danger Zone → Change visibility →
+   Public**. The guide is public anyway, so nothing is exposed that isn't already.
+
+   Check that anyone can pull it, without logging in:
+
+   ```sh title="Laptop"
+   curl -s "https://ghcr.io/token?scope=repository:<YOUR_GITHUB_USER>/homelab-guide:pull"
+   ```
+
+   It prints a `token`. A private package prints an error, `DENIED`, instead.
+
+4. **Deploy it.** Copy
+   [`examples/06-first-app`](https://github.com/romansegador/homelab-guide/tree/main/examples/06-first-app)
+   into your **config** repository, merging its folders with yours. Then fill in your values:
+   - In `apps/guide.yaml`, replace `<YOUR_CONFIG_REPO_URL>`, as before.
+   - In `manifests/guide/guide.yaml`, replace `<YOUR_GITHUB_USER>` in the image, and
+     `lab.home.example.com` in the Ingress.
+
+   Commit and push to `main`. Within a few minutes:
+
+   ```sh title="Laptop"
+   kubectl -n guide get pods
+   curl -sS -o /dev/null -w '%{http_code}\n' https://guide.lab.home.example.com
+   ```
+
+   One `guide` pod is `Running`, and `curl` prints `200`. Open
+   `https://guide.lab.home.example.com`: it's this guide, served from your cluster.
+
+</Steps>
+
+## Check it
+
+**Release a new version.** Make a small visible change in your fork, for example in
+`src/content/docs/index.mdx`. Commit and push it, then tag it:
+
+```sh title="Laptop"
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+When the workflow is green, change the image tag in your config repository's
+`manifests/guide/guide.yaml` from `0.1.0` to `0.1.1`, then commit and push. Within a few minutes,
+the page shows your change, and the pod runs the new version:
+
+```sh title="Laptop"
+kubectl -n guide get deployment guide -o jsonpath='{.spec.template.spec.containers[0].image}'; echo
+```
+
+It prints `ghcr.io/<YOUR_GITHUB_USER>/homelab-guide:0.1.1`.
+
+**Roll back.** In your config repository, revert the commit that changed the tag, and push:
+
+```sh title="Laptop"
+git revert --no-edit HEAD
+git push
+```
+
+After the next sync, the same command prints `0.1.0` again, and the page loses your change.
+Rolling back took one commit, and the image for `0.1.1` is still there for later.
+
+**The image says how it was built.** The workflow publishes a signed record with each image: which
+repository, commit and workflow built it. Check it with the GitHub CLI:
+
+```sh title="Laptop"
+gh attestation verify oci://ghcr.io/<YOUR_GITHUB_USER>/homelab-guide:0.1.0 --owner <YOUR_GITHUB_USER>
+```
+
+It ends with `Verification succeeded!`.
+
+## Before you move on
+
+- [ ] All the checks pass, and the guide runs the version you want.
+- [ ] `apps/guide.yaml` and `manifests/guide/` committed in your config repository.
+
+This is the routine for every app from now on: CI builds a versioned image, and a commit in your
+config repository deploys it. Chapter 8 automates that commit. Next: a database.

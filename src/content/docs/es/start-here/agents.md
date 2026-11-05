@@ -52,3 +52,4 @@ Pasa a tu agente una de esas URLs y pídele que te guíe por un capítulo.
 | 3 · GitOps | `gitops` |
 | 4 · Secretos | `secrets` |
 | 5 · HTTPS y DNS privado | `https` |
+| 6 · Tu primera aplicación | `first-app` |

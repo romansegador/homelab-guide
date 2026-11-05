@@ -1,0 +1,22 @@
+# Your first real app: this guide, served from the image CI publishes. To release a new version,
+# change the image tag in manifests/guide/guide.yaml and push.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: guide
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: <YOUR_CONFIG_REPO_URL>
+    targetRevision: main
+    path: manifests/guide
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: guide
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

@@ -47,3 +47,4 @@ Give your agent one of those URLs and ask it to guide you through a chapter.
 | 3 · GitOps | `gitops` |
 | 4 · Secrets | `secrets` |
 | 5 · HTTPS and private DNS | `https` |
+| 6 · Your first app | `first-app` |

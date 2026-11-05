@@ -345,3 +345,66 @@ cert-manager renews the certificate on its own, and the address isn't needed.
 Traefik handles HTTPS for every app with the same certificate, and passes requests on to the app
 inside the cluster. If ArgoCD kept its own self-signed HTTPS too, Traefik would have to be told to
 trust it. The `argocd` command-line tool also works through Traefik, with its `--grpc-web` flag.
+
+## Chapter 6 · Your first app
+
+### Why GitHub Container Registry?
+It sits next to the code: GitHub Actions pushes to it with the workflow's own token, so there's no
+registry password to create or store. Public images are free, and anyone can pull them without
+logging in, including your cluster.
+
+| Alternative | When to pick it |
+|---|---|
+| **Docker Hub** | If your images already live there. It needs an access token stored in GitHub, and limits how often anonymous users can pull. |
+| **A registry in your cluster** (Zot, Harbor) | If images may not leave home. It's one more service to run, back up and keep secure, and your cluster then depends on itself to start its apps. |
+| **Your cloud provider's registry** | If you already deploy there. |
+
+### Why publish on a git tag, and not on every merge?
+A tag is a decision: "this is a release". Each version gets a readable number, and its image never
+changes. Publishing on every merge gives you an image per commit, with names like `sha-1a2b3c4`
+that say little, and many images to clean up. Pull requests still build the image, without
+publishing it, so a broken `Dockerfile` shows up before it's merged.
+
+### Why does the image tag drop the `v`?
+`v0.1.0` is the git convention, and `0.1.0` is the image convention. The workflow's
+`type=semver` rule turns one into the other, and ignores tags that aren't versions.
+
+### Why change the version by hand in the config repository?
+Every deployment is then a commit you made: you can see what changed, when, and undo it with
+`git revert`. Automating it means giving some tool write access to your config repository, or
+running one more component in the cluster. Chapter 8 does that, once a real app releases often
+enough to need it.
+
+### Why plain YAML, and not Kustomize or a Helm chart?
+One app, one environment: a Deployment, a Service and an Ingress say everything, and the version is
+one line. **Helm** is the standard way to *package* software for others to install, which is why
+the tools in chapters 3 to 5 come as charts. For your *own* apps, teams use both Helm and
+**Kustomize**. Kustomize is built into `kubectl` and ArgoCD, and fits "the same app with small
+changes for dev and prod". A chart pays off when you need templating logic, or install the same app
+many times. Chapter 8 revisits this for a multi-service app.
+
+### Why an unprivileged nginx, with a read-only file system?
+A static site needs nothing more. The container runs as a normal user, can't gain privileges,
+can't change its own files, and writes only to a temporary folder. If someone found a flaw in
+nginx, there would be little they could do with it. It costs a few lines of YAML.
+
+### Why build for amd64 and arm64?
+So the same image runs on a mini PC and on a Raspberry Pi. The site is plain HTML, CSS and JS, the
+same on every platform, so the build runs once, natively, and only the small nginx layer differs.
+That avoids emulating arm64, which would make CI many times slower.
+
+### What is the build record (attestation)?
+A signed statement, stored with the image, saying which repository, commit and workflow built it.
+`gh attestation verify` checks it. It lets you prove an image came from your CI and not from
+someone's laptop, and it costs one step in the workflow.
+
+### Why are the GitHub Actions pinned by major version, not by commit?
+`actions/checkout@v7` gets fixes automatically, and the actions used here come from GitHub and
+Docker. Pinning each action to a commit is safer against a compromised action, but every update
+becomes a manual change. Tools like Dependabot or Renovate make that easy, and they are worth adding
+once you have several repositories.
+
+### What if my image is private?
+The cluster then needs credentials to pull it: a registry token, stored in the secrets manager,
+synced into the app's namespace by an ExternalSecret of type `kubernetes.io/dockerconfigjson`, and
+named in the Deployment's `imagePullSecrets`. Chapter 8 does this for a private app.

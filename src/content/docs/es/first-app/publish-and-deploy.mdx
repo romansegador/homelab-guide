@@ -1,0 +1,182 @@
+---
+title: Tu primera aplicación
+description: Convierte esta guía en una imagen de contenedor con GitHub Actions, publícala en GitHub Container Registry con una etiqueta de versión y despliégala con ArgoCD en su propia dirección HTTPS. Publicar es una etiqueta y un commit de una línea.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+:::note[Traducción asistida por IA]
+Esta página es una traducción asistida por IA del original en inglés, que es la referencia. Si
+ves un error, abre un issue o un PR.
+:::
+
+Los capítulos 2 a 5 construyeron la plataforma. Ahora ejecuta algo real: **esta guía**. Es un sitio
+web estático, así que es una buena primera aplicación. No tiene base de datos ni secretos, pero
+recorre todo el camino desde el código fuente hasta una página en tu red. Al terminar tendrás:
+- un workflow de **GitHub Actions** que convierte el sitio en una imagen de contenedor,
+- la imagen publicada en **GitHub Container Registry** (`ghcr.io`) cuando haces push de una
+  etiqueta de versión, como `v0.1.0`,
+- la guía funcionando en tu clúster, desplegada por ArgoCD, en `https://guide.lab.home.example.com`,
+- una rutina para publicar: etiquetar una versión y cambiar una línea en tu repositorio de
+  configuración.
+
+<Aside type="tip" title="Hazlo con un agente de IA">
+Este capítulo tiene una skill para agentes, `first-app`. Consulta [Usar con un agente de IA](/es/start-here/agents/).
+</Aside>
+
+**Probado con:** imágenes de node 26 y nginx 1.30 (sin privilegios), GitHub Actions, sobre k3s
+v1.37.2+k3s1 con ArgoCD 3.6.1.
+
+## Antes, unas ideas
+
+### Del código a una aplicación en marcha
+```text
+tu repositorio de la guía       GitHub                          tu repositorio de configuración  clúster
+┌──────────────────┐  git tag  ┌───────────────────────────┐   ┌───────────────────────┐    ┌────────┐
+│ sitio+Dockerfile │──v0.1.0──▶│ Actions crea la imagen    │   │ guide.yaml:           │    │ ArgoCD │
+└──────────────────┘           │ ghcr.io/…/homelab-guide   │◀──│  image: …:0.1.0       │◀───│ sincr. │
+                               │        :0.1.0             │   └───────────────────────┘    └────────┘
+                               └───────────────────────────┘          tú cambias esta línea
+```
+
+- Una **imagen de contenedor** es la aplicación y todo lo que necesita para funcionar, en un solo
+  paquete con versión. Aquí son los ficheros HTML del sitio y un pequeño servidor web, nginx.
+- Un **registro** guarda imágenes. **GitHub Container Registry** está junto a tu código, es gratis
+  para imágenes públicas, y GitHub Actions puede publicar en él sin ningún secreto extra.
+- Una **etiqueta de versión** en git (`v0.1.0`) es la forma de decir «publica esto». El workflow
+  crea una imagen con la misma versión (`0.1.0`), y esa imagen ya no cambia nunca.
+- Tu **repositorio de configuración** dice qué versión funciona. Publicar es cambiar esa línea.
+  Volver atrás es `git revert`.
+
+### ¿Por qué no `latest`?
+Una etiqueta de imagen como `latest` apunta a lo último que se publicó. Entonces git no puede decir
+qué está funcionando, dos reinicios pueden ejecutar dos versiones distintas, y no puedes volver
+atrás con un commit. Una versión fija en git mantiene el clúster igual que el repositorio, que es
+la idea de GitOps.
+
+El razonamiento detrás de cada elección está en las [preguntas frecuentes](/es/start-here/faq/#capítulo-6--tu-primera-aplicación).
+
+## Antes de empezar
+
+- [ ] El capítulo 5 terminado: tus aplicaciones tienen direcciones HTTPS bajo
+      `*.lab.home.example.com`.
+- [ ] Una cuenta de GitHub, y `git` funcionando desde tu portátil.
+
+## Prepáralo
+
+<Steps>
+
+1. **Haz un fork de la guía.** En [el repositorio de la guía](https://github.com/romansegador/homelab-guide),
+   pulsa **Fork**. Tu copia tiene todo lo que usa este capítulo:
+   - `Dockerfile`: construye el sitio y lo copia en una imagen de nginx sin privilegios.
+   - `nginx.conf`: sirve el sitio, con su página 404.
+   - `.github/workflows/image.yml`: construye la imagen en cada pull request, y la publica cuando
+     haces push de una etiqueta de versión.
+
+   GitHub desactiva los workflows en los forks nuevos. Abre la pestaña **Actions** de tu fork y
+   actívalos.
+
+   Después clona tu fork, y ejecuta los comandos del paso siguiente en esa carpeta:
+
+   ```sh title="Portátil"
+   git clone git@github.com:<YOUR_GITHUB_USER>/homelab-guide.git
+   cd homelab-guide
+   ```
+
+   <Aside>
+   Tu propio sitio estático también sirve. Copia los tres ficheros en su repositorio, y cambia los
+   comandos de construcción del `Dockerfile` para tu sitio.
+   </Aside>
+
+2. **Publica la primera versión.** Etiqueta el código actual y haz push de la etiqueta:
+
+   ```sh title="Portátil"
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+
+   En la pestaña **Actions** de tu fork, el workflow **Image** se ejecuta para `v0.1.0`. Tarda dos
+   o tres minutos. Cuando está en verde, la pestaña **Packages** de tu perfil muestra
+   `homelab-guide`, versión `0.1.0`.
+
+3. **Haz pública la imagen.** Los paquetes nuevos empiezan siendo privados, y tu clúster no tiene
+   credenciales para descargar los privados. Abre el paquete, y después **Package settings →
+   Danger Zone → Change visibility → Public**. La guía ya es pública, así que no se expone nada
+   que no lo estuviera.
+
+   Comprueba que cualquiera puede descargarla, sin iniciar sesión:
+
+   ```sh title="Portátil"
+   curl -s "https://ghcr.io/token?scope=repository:<YOUR_GITHUB_USER>/homelab-guide:pull"
+   ```
+
+   Imprime un `token`. Un paquete privado imprime un error, `DENIED`.
+
+4. **Despliégala.** Copia
+   [`examples/06-first-app`](https://github.com/romansegador/homelab-guide/tree/main/examples/06-first-app)
+   en tu repositorio de **configuración**, uniendo sus carpetas con las tuyas. Después rellena tus
+   valores:
+   - En `apps/guide.yaml`, sustituye `<YOUR_CONFIG_REPO_URL>`, como antes.
+   - En `manifests/guide/guide.yaml`, sustituye `<YOUR_GITHUB_USER>` en la imagen, y
+     `lab.home.example.com` en el Ingress.
+
+   Haz commit y push a `main`. En unos minutos:
+
+   ```sh title="Portátil"
+   kubectl -n guide get pods
+   curl -sS -o /dev/null -w '%{http_code}\n' https://guide.lab.home.example.com
+   ```
+
+   Hay un pod `guide` en `Running`, y `curl` imprime `200`. Abre
+   `https://guide.lab.home.example.com`: es esta guía, servida desde tu clúster.
+
+</Steps>
+
+## Compruébalo
+
+**Publica una versión nueva.** Haz un cambio pequeño y visible en tu fork, por ejemplo en
+`src/content/docs/index.mdx`. Haz commit y push, y después etiquétalo:
+
+```sh title="Portátil"
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+Cuando el workflow esté en verde, cambia la etiqueta de la imagen en el
+`manifests/guide/guide.yaml` de tu repositorio de configuración de `0.1.0` a `0.1.1`, y haz commit
+y push. En unos minutos, la página muestra tu cambio, y el pod ejecuta la versión nueva:
+
+```sh title="Portátil"
+kubectl -n guide get deployment guide -o jsonpath='{.spec.template.spec.containers[0].image}'; echo
+```
+
+Imprime `ghcr.io/<YOUR_GITHUB_USER>/homelab-guide:0.1.1`.
+
+**Vuelve atrás.** En tu repositorio de configuración, revierte el commit que cambió la etiqueta, y
+haz push:
+
+```sh title="Portátil"
+git revert --no-edit HEAD
+git push
+```
+
+Tras la siguiente sincronización, el mismo comando vuelve a imprimir `0.1.0`, y la página pierde tu
+cambio. Volver atrás ha costado un commit, y la imagen de `0.1.1` sigue ahí para más adelante.
+
+**La imagen dice cómo se construyó.** El workflow publica un registro firmado con cada imagen: qué
+repositorio, commit y workflow la construyeron. Compruébalo con la CLI de GitHub:
+
+```sh title="Portátil"
+gh attestation verify oci://ghcr.io/<YOUR_GITHUB_USER>/homelab-guide:0.1.0 --owner <YOUR_GITHUB_USER>
+```
+
+Termina con `Verification succeeded!`.
+
+## Antes de seguir
+
+- [ ] Todas las comprobaciones pasan, y la guía ejecuta la versión que quieres.
+- [ ] `apps/guide.yaml` y `manifests/guide/` con commit en tu repositorio de configuración.
+
+Esta es la rutina para cada aplicación a partir de ahora: CI construye una imagen con versión, y un
+commit en tu repositorio de configuración la despliega. El capítulo 8 automatiza ese commit.
+Siguiente: una base de datos.
