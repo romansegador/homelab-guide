@@ -239,14 +239,15 @@ It's hosted (nothing more to run or back up at home), its free plan covers a hom
 Two honest caveats:
 - External Secrets marks its Bitwarden support as **alpha**: it works, but it has fewer users than
   the big cloud providers, and its settings may change between versions. The guide pins the version
-  and was tested with it.
+  and was tested with it. The same label is on Infisical, Doppler, 1Password and OpenBao, so
+  switching to another hosted manager doesn't avoid it.
 - It needs a helper service inside the cluster, the Bitwarden SDK server, with its own certificate.
 
 | Alternative | When to pick it |
 |---|---|
-| **Infisical** or **Doppler** | Similar hosted managers, with stable External Secrets support. Pick one if you don't use Bitwarden. |
-| **1Password** | If you already pay for it. External Secrets supports it well. |
-| **A cloud provider's manager** (AWS, Google Cloud, Azure) | If you already have an account there. They're the most mature providers, but they're paid per secret and per request. |
+| **Infisical** or **Doppler** | Similar hosted managers that External Secrets reaches directly, with no helper service or certificate. Pick one if you don't use Bitwarden. |
+| **1Password** | If you already pay for it. |
+| **A cloud provider's manager** (AWS, Google Cloud, Azure) | If you already have an account there. They're among External Secrets' stable providers, but they're paid per secret and per request. |
 | **Self-hosted** (OpenBao, Vault) | If nothing may leave your home. It's one more critical service to run and back up, and it's on the roadmap's extras. |
 
 ### Why install cert-manager in this chapter?

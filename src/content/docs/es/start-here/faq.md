@@ -262,15 +262,16 @@ contraseñas.
 Dos advertencias sinceras:
 - External Secrets marca su soporte de Bitwarden como **alpha**: funciona, pero tiene menos usuarios
   que los grandes proveedores cloud, y sus ajustes pueden cambiar entre versiones. La guía fija la
-  versión y se probó con ella.
+  versión y se probó con ella. La misma etiqueta está en Infisical, Doppler, 1Password y OpenBao,
+  así que cambiar a otro gestor alojado no la evita.
 - Necesita un servicio auxiliar dentro del clúster, el Bitwarden SDK server, con su propio
   certificado.
 
 | Alternativa | Cuándo elegirla |
 |---|---|
-| **Infisical** o **Doppler** | Gestores alojados parecidos, con soporte estable en External Secrets. Elige uno si no usas Bitwarden. |
-| **1Password** | Si ya pagas por él. External Secrets lo soporta bien. |
-| **El gestor de un proveedor cloud** (AWS, Google Cloud, Azure) | Si ya tienes cuenta allí. Son los proveedores más maduros, pero se pagan por secreto y por petición. |
+| **Infisical** o **Doppler** | Gestores alojados parecidos a los que External Secrets llega directamente, sin servicio auxiliar ni certificado. Elige uno si no usas Bitwarden. |
+| **1Password** | Si ya pagas por él. |
+| **El gestor de un proveedor cloud** (AWS, Google Cloud, Azure) | Si ya tienes cuenta allí. Están entre los proveedores estables de External Secrets, pero se pagan por secreto y por petición. |
 | **Autoalojado** (OpenBao, Vault) | Si nada puede salir de tu casa. Es un servicio crítico más que mantener y copiar, y está entre los extras de la hoja de ruta. |
 
 ### ¿Por qué instalar cert-manager en este capítulo?
