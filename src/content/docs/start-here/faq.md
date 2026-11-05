@@ -113,8 +113,8 @@ would be a second tool for little gain.
 ## Chapter 2 · The cluster
 
 ### Why k3s?
-It's a full, certified Kubernetes in a single program. It installs in a minute, idles at well
-under 1 GB of RAM, and includes what a one-machine cluster needs (ingress, a load balancer,
+It's a full, certified Kubernetes in a single program. It installs in a minute, a fresh cluster
+idles at about 1 GB of RAM (1.2 GB for the whole machine, OS included), and includes what a one-machine cluster needs (ingress, a load balancer,
 volumes). What you learn transfers to any Kubernetes. Alternatives: **k0s** and **MicroK8s**
 (similar idea), **Talos** (an immutable OS that is only Kubernetes: great, but more to learn at
 once), or full **kubeadm** (more parts to run yourself).

@@ -124,8 +124,8 @@ antes que parchear a mano, sería una segunda herramienta para poca ganancia.
 ## Capítulo 2 · El clúster
 
 ### ¿Por qué k3s?
-Es un Kubernetes completo y certificado en un solo programa. Se instala en un minuto, en reposo usa
-bastante menos de 1 GB de RAM e incluye lo que necesita un clúster de una máquina (ingress, un
+Es un Kubernetes completo y certificado en un solo programa. Se instala en un minuto, un clúster nuevo
+en reposo usa alrededor de 1 GB de RAM (1,2 GB toda la máquina, sistema incluido) e incluye lo que necesita un clúster de una máquina (ingress, un
 balanceador, volúmenes). Lo que aprendes sirve para cualquier Kubernetes. Alternativas: **k0s** y
 **MicroK8s** (idea parecida), **Talos** (un sistema operativo inmutable que solo es Kubernetes:
 muy bueno, pero con más que aprender a la vez) o **kubeadm** completo (más piezas que gestionar tú).
