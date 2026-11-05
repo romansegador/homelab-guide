@@ -1,0 +1,282 @@
+---
+title: Instalar el clúster
+description: Un clúster de Kubernetes de un solo nodo con k3s, etcd integrado con instantáneas programadas y copias de seguridad cada noche, almacenamiento en el disco de datos, y kubectl y k9s en tu portátil.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+:::note[Traducción asistida por IA]
+Esta página es una traducción asistida por IA del original en inglés, que es la referencia. Si
+ves un error, abre un issue o un PR.
+:::
+
+Vas a convertir la máquina del capítulo 1 en un clúster de Kubernetes que gestionas desde tu
+portátil. Al terminar tendrás:
+- **k3s** funcionando en la máquina como clúster de un solo nodo, con la versión fijada,
+- su base de datos (**etcd integrado**) con instantáneas cada 6 horas, y una **copia de seguridad
+  de toda la máquina cada noche** en un almacenamiento fuera de ella,
+- los **Secrets** de Kubernetes **cifrados** dentro de esa base de datos,
+- los volúmenes de las aplicaciones en el **disco de datos** (`/data`),
+- **kubectl**, **k9s** y **helm** en tu portátil, conectados al clúster por su nombre.
+
+<Aside type="tip" title="Hazlo con un agente de IA">
+Este capítulo tiene una skill para agentes, `cluster`. Consulta [Usar con un agente de IA](/es/start-here/agents/).
+</Aside>
+
+**Probado con:** k3s v1.37.2+k3s1 sobre Ubuntu Server 26.04.1, kubectl 1.37, k9s 0.51, helm 4.3.
+
+## Antes, unas ideas
+
+### Kubernetes y k3s
+**Kubernetes** ejecuta contenedores por ti. Describes lo que debe funcionar (esta aplicación, dos
+copias, con este volumen) y él mantiene la realidad a la par: reinicia lo que falla y sustituye lo
+que cambias. **k3s** es un Kubernetes completo y certificado en un solo programa, pensado para
+máquinas pequeñas. Ya incluye las piezas que necesita un clúster pequeño:
+
+| Incluido | Qué hace | En esta guía |
+|---|---|---|
+| **Traefik** | Ingress: lleva `https://app.example.com` a la aplicación correcta | Se usa desde el capítulo 5 |
+| **ServiceLB** | Expone los puertos 80/443 en la IP de la propia máquina | Se mantiene |
+| **local-path** | Volúmenes para aplicaciones, como carpetas en la máquina | Se mantiene, apuntando a `/data` |
+
+### El almacén de datos y sus instantáneas
+Todo lo que sabe el clúster (qué debe funcionar, su configuración, sus Secrets) vive en una pequeña
+base de datos. Aquí k3s usa **etcd**, la misma base de datos que usan los clústeres grandes, porque
+trae **instantáneas**: k3s guarda todo el estado del clúster en un fichero en el disco de datos, de
+forma programada. Una instantánea devuelve el clúster a su estado anterior tras un cambio que sale
+mal, o lo reconstruye en una máquina nueva.
+
+Una instantánea en el disco de la propia máquina se pierde junto con la máquina. Por eso una
+**copia de seguridad nocturna** de la VM, hecha por Proxmox como tu primera copia del capítulo 1,
+la lleva a tu almacenamiento de copias. Esa misma tarea cubre también el sistema y todos los
+volúmenes de las aplicaciones en `/data`.
+
+Una instantánea va cifrada con el **token del servidor** del clúster. Para restaurarla en una
+máquina nueva necesitas ese token, así que lo guardarás en tu gestor de contraseñas en el paso 4.
+
+### kubectl, k9s y el kubeconfig
+**kubectl** es la herramienta de línea de comandos de Kubernetes. **k9s** es una interfaz de
+terminal sobre ella para ver qué está funcionando. **helm** instala aplicaciones empaquetadas, y el
+capítulo 3 lo usa. Las tres leen un fichero **kubeconfig** para encontrar el clúster y entrar. El
+kubeconfig que crea k3s es la **llave de administrador** del clúster: trátalo como una contraseña.
+
+El razonamiento detrás de cada elección está en las [preguntas frecuentes](/es/start-here/faq/#capítulo-2--el-clúster).
+
+## Antes de empezar
+
+- [ ] El capítulo 1 terminado: puedes entrar por `ssh` en la máquina y `/data` está montado.
+- [ ] La máquina tiene un nombre DNS (esta página usa `lab-1.home.example.com`). También sirve su
+      dirección IP: úsala donde aparezca el nombre.
+- [ ] Tu repositorio privado del capítulo 1.
+- [ ] Un almacenamiento de copias de seguridad fuera de la máquina, añadido a Proxmox. La
+      [primera copia](/es/machine/create/#haz-una-primera-copia-de-seguridad) del capítulo 1 lo usó.
+
+## Instálalo
+
+<Steps>
+
+1. **Instala las herramientas del portátil** con [Homebrew](https://brew.sh) (en Linux, consulta la
+   página de instalación de cada herramienta):
+
+   ```sh title="Portátil"
+   brew install kubernetes-cli k9s helm
+   kubectl version --client
+   which kubectl
+   ```
+
+   `kubectl` debe ser la **1.36 o posterior**. kubectl admite clústeres de una versión menor
+   anterior o posterior a la suya. Si la versión es más antigua, `which kubectl` muestra de dónde
+   viene. Docker Desktop, por ejemplo, instala el suyo en `/usr/local/bin`. Asegúrate de que el de
+   Homebrew va primero en tu `PATH`, o quita el antiguo.
+
+2. **Consigue el fichero de configuración y el script de instalación.** Copia
+   [`examples/02-cluster`](https://github.com/romansegador/homelab-guide/tree/main/examples/02-cluster)
+   a tu repositorio privado como `infra/k3s/`. En `config.yaml`, cambia `tls-san` por el nombre DNS
+   de tu máquina y lee el resto: cada línea está explicada. `install.sh` también es corto, y vale
+   la pena leerlo antes de ejecutarlo. Ejecuta los comandos de portátil de este capítulo desde la
+   carpeta raíz de tu repositorio.
+
+3. **Instala k3s.** El script trabaja por SSH, así que lo ejecutas desde tu portátil:
+
+   ```sh title="Portátil"
+   bash infra/k3s/install.sh ops@lab-1.home.example.com
+   ```
+
+   Tarda uno o dos minutos y hace cuatro pasos:
+   1. copia `config.yaml` a `/etc/rancher/k3s/config.yaml` en la máquina,
+   2. instala k3s con el script oficial de instalación, en la versión fijada al principio de
+      `install.sh`,
+   3. espera a que el nodo esté `Ready` y toma una primera instantánea,
+   4. guarda el kubeconfig como `~/.kube/lab-1.yaml`, apuntando al nombre de la máquina y con sus
+      entradas llamadas `lab-1`.
+
+   Puedes volver a ejecutarlo sin problema, por ejemplo después de cambiar `config.yaml`.
+
+4. **Guarda el token del servidor y el kubeconfig** en tu gestor de contraseñas. Cada comando de
+   abajo copia uno al portapapeles sin mostrarlo en pantalla. Pégalo en un elemento nuevo y después
+   ejecuta el siguiente. Guarda cada uno como **nota segura** (el kubeconfig ocupa unas decenas de
+   líneas, y muchos gestores de contraseñas solo adjuntan ficheros en sus planes de pago):
+   - «k3s server token (lab-1)»:
+
+     ```sh title="Portátil"
+     ssh ops@lab-1.home.example.com sudo cat /var/lib/rancher/k3s/server/token | pbcopy
+     ```
+
+   - «k3s kubeconfig (lab-1)»:
+
+     ```sh title="Portátil"
+     pbcopy < ~/.kube/lab-1.yaml
+     ```
+
+   `pbcopy` es de macOS. En Linux usa `wl-copy` (Wayland) o `xclip -selection clipboard` (X11).
+   Para recuperar el kubeconfig en un portátil nuevo, copia la nota y ejecuta
+   `pbpaste > ~/.kube/lab-1.yaml && chmod 600 ~/.kube/lab-1.yaml`.
+
+   <Aside type="caution">Sin este token, las instantáneas no se pueden restaurar en una máquina
+   nueva. También es la llave que permite a otras máquinas unirse al clúster, así que guárdalo en
+   secreto.</Aside>
+
+5. **Apunta kubectl al clúster.** `KUBECONFIG` lista los ficheros que leen kubectl, k9s y helm.
+   Añadir el nuevo fichero conserva los clústeres que ya tengas, y un fichero que no existe se
+   ignora. Añádelo al fichero de arranque de tu shell (`~/.zshrc` en macOS, `~/.bashrc` en la
+   mayoría de Linux) y después selecciona el clúster:
+
+   ```sh title="Portátil"
+   echo 'export KUBECONFIG="$HOME/.kube/config:$HOME/.kube/lab-1.yaml"' >> ~/.zshrc
+   source ~/.zshrc
+   kubectl config use-context lab-1
+   ```
+
+6. **Compruébalo desde tu portátil:**
+
+   ```sh title="Portátil"
+   kubectl get nodes -o wide
+   kubectl get pods -A
+   ```
+
+   El nodo está `Ready` y todos los pods están `Running` o `Completed`. Los pods
+   `helm-install-…` son tareas de instalación de una sola vez y terminan como `Completed`. Después abre **k9s**, echa un vistazo y sal
+   con `:q`:
+
+   ```sh title="Portátil"
+   k9s
+   ```
+
+7. **Programa una copia de seguridad nocturna de la VM.** En la interfaz web de Proxmox:
+   *Datacenter → Backup → Add*:
+   - **Storage:** tu almacenamiento de copias.
+   - **Schedule:** una hora en la que la máquina esté tranquila, por ejemplo `02:30`.
+   - **Selection mode:** *Include selected VMs*, y marca tu VM.
+   - **Mode:** *Snapshot*. **Compression:** *ZSTD*.
+   - Pestaña **Retention:** **Keep Daily** `7`, **Keep Weekly** `4`.
+
+   Si ya tienes una tarea de copias para otras VMs, puedes añadir esta VM a ella.
+
+   O desde el host de Proxmox, con el id de tu VM y el nombre de tu almacenamiento:
+
+   ```sh title="Host de Proxmox"
+   pvesh create /cluster/backup --schedule 02:30 --vmid <VMID> --storage <YOUR_BACKUP_STORAGE> --mode snapshot --compress zstd --prune-backups keep-daily=7,keep-weekly=4
+   ```
+
+   Después selecciona la tarea y pulsa *Run now*: una primera copia del clúster limpio al que
+   volver.
+
+</Steps>
+
+## Compruébalo
+
+**El almacenamiento acaba en el disco de datos.** Crea un volumen de prueba y un pod que escribe un
+fichero en él:
+
+```sh title="Portátil"
+kubectl apply -f infra/k3s/test-volume.yaml
+kubectl wait --for=condition=Ready pod/test-volume --timeout=120s
+kubectl exec test-volume -- cat /mnt/hello.txt
+```
+
+Muestra `hello from the cluster`. En la máquina, el mismo fichero está bajo `/data/local-path`:
+
+```sh title="La máquina"
+sudo find /data/local-path -name hello.txt
+```
+
+Después quita la prueba:
+
+```sh title="Portátil"
+kubectl delete -f infra/k3s/test-volume.yaml
+```
+
+**Se están tomando instantáneas:**
+
+```sh title="La máquina"
+sudo k3s etcd-snapshot ls
+```
+
+Aparece la instantánea `first` de la instalación, con una ubicación `file://` bajo
+`/data/etcd-snapshots`. A partir de ahora k3s añade una cada 6 horas.
+
+**Los Secrets están cifrados:**
+
+```sh title="La máquina"
+sudo k3s secrets-encrypt status
+```
+
+Muestra `Encryption Status: Enabled`.
+
+**Traefik escucha en la IP de la máquina:**
+
+```sh title="Portátil"
+kubectl -n kube-system get service traefik
+```
+
+`EXTERNAL-IP` es la IP de tu máquina. Abrir `http://lab-1.home.example.com` en un navegador
+devuelve `404 page not found`. Es lo correcto: Traefik responde y todavía no hay ninguna aplicación
+enrutada.
+
+**Sobrevive a un reinicio:**
+
+```sh title="La máquina"
+sudo reboot
+```
+
+Espera un minuto. Después, desde tu portátil, `kubectl get nodes` vuelve a mostrar `Ready` y
+`kubectl get pods -A` vuelve a `Running`.
+
+## Opcional: instantáneas a un bucket
+
+k3s también puede subir cada instantánea a un almacenamiento compatible con S3 (Cloudflare R2, AWS
+S3, MinIO, Garage…) y guarda allí las 5 últimas. Hazlo si no tienes almacenamiento de copias fuera
+de la máquina, o si quieres una copia fuera de casa cada 6 horas en lugar de una por noche. Un
+servicio que no habla S3 (SFTP, rsync, un servicio de copias como un Hetzner Storage Box) no puede
+recibirlas directamente.
+
+1. Crea un bucket para las instantáneas, distinto del estado de OpenTofu, con una clave de acceso
+   limitada a **ese bucket** (en R2, los mismos pasos que en [Preparar OpenTofu](/es/machine/opentofu-setup/)).
+   Guarda las claves en tu gestor de contraseñas y apunta el endpoint S3 API del bucket.
+2. Ejecuta el script del ejemplo. Te pide el endpoint (solo el host), el nombre del bucket y sus
+   claves, y crea el Secret que lee k3s:
+
+   ```sh title="Portátil"
+   bash infra/k3s/create-etcd-s3-secret.sh
+   ```
+
+3. En `infra/k3s/config.yaml`, quita el comentario de las líneas `etcd-s3` y
+   `etcd-s3-config-secret`. Copia el fichero a la máquina y reinicia k3s volviendo a ejecutar
+   `install.sh` (paso 3). Después toma una instantánea:
+
+   ```sh title="La máquina"
+   sudo k3s etcd-snapshot save --name first-s3
+   sudo k3s etcd-snapshot ls
+   ```
+
+   La nueva instantánea aparece dos veces, una en la máquina (`file://`) y otra en el bucket (`s3://`).
+
+## Antes de seguir
+
+- [ ] Todas las comprobaciones pasan, también después de reiniciar.
+- [ ] En tu gestor de contraseñas: el **token del servidor** de k3s y el **kubeconfig**.
+- [ ] `infra/k3s/` con commit en tu repositorio privado. No contiene secretos.
+- [ ] La tarea de copias nocturna está creada, y su primera ejecución aparece en la pestaña
+      *Backup* de la VM.
+
+Siguiente: GitOps, con ArgoCD.

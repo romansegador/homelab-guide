@@ -43,3 +43,4 @@ Give your agent one of those URLs and ask it to guide you through a chapter.
 |---|---|
 | 0 · Plan | `plan` |
 | 1 · The machine | `machine` |
+| 2 · The cluster | `cluster` |

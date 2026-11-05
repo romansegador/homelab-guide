@@ -54,6 +54,11 @@ export default defineConfig({
 					translations: { es: '1 · La máquina' },
 					items: [{ slug: 'machine/opentofu-setup' }, { slug: 'machine/create' }],
 				},
+				{
+					label: '2 · The cluster',
+					translations: { es: '2 · El clúster' },
+					items: [{ slug: 'cluster/install' }],
+				},
 			],
 		}),
 	],

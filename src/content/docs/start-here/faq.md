@@ -109,3 +109,62 @@ definition. That keeps chapter 1 to one tool and one command. Everything that ru
 afterwards is managed by the cluster and GitOps. Ansible shines when you configure many machines
 repeatedly over their lifetime. With one machine that you'd rather rebuild than patch by hand, it
 would be a second tool for little gain.
+
+## Chapter 2 · The cluster
+
+### Why k3s?
+It's a full, certified Kubernetes in a single program. It installs in a minute, a fresh cluster
+idles at about 1 GB of RAM (1.2 GB for the whole machine, OS included), and includes what a one-machine cluster needs (ingress, a load balancer,
+volumes). What you learn transfers to any Kubernetes. Alternatives: **k0s** and **MicroK8s**
+(similar idea), **Talos** (an immutable OS that is only Kubernetes: great, but more to learn at
+once), or full **kubeadm** (more parts to run yourself).
+
+### Why install it with a script and a config file, not cloud-init or a tool like k3sup?
+The config file is the source of truth, and it lives in your repository. The install is one
+short script, run from your laptop over SSH, that you can read, rerun and debug. It wraps the
+official k3s install script, and does by hand-sized steps what k3sup does. Baking k3s into cloud-init would rebuild the
+cluster automatically with the VM, but a failure would be hidden inside a first boot, and it
+mixes "the machine" with "the cluster". **k3sup** is a handy installer, but it's one more tool,
+and it hides the config. Either is a fine choice later, once you know what the steps do.
+
+### Why embedded etcd and not the default SQLite?
+For one machine SQLite is lighter, but etcd brings two things the guide wants:
+- **built-in snapshots**, scheduled, with an optional upload to a bucket. With SQLite you'd build
+  that yourself;
+- **room to grow**: more *server* nodes can join an etcd cluster later. With SQLite, extra
+  machines can only join as workers.
+
+The cost is some extra RAM (a few hundred MB) and more disk writes. On an SSD that's fine.
+
+### Where do the snapshots go off the machine, and why not a bucket?
+k3s writes each snapshot to the data disk. The guide gets them off the machine with a **nightly
+Proxmox backup of the whole VM** to backup storage you already have, such as a NAS. One job then
+covers everything: the OS, the app volumes on `/data`, and the snapshots, with no new account or
+keys. The VM backup also copies the live etcd files, but those are only crash-consistent. The
+snapshot files inside it are clean, point-in-time copies, and they're what you restore from.
+
+| Option | Verdict |
+|---|---|
+| **Nightly VM backup to a NAS** ✅ | Uses storage you already have, and covers the whole machine. At most one day of changes is lost, and the copy stays in your home until you send it off-site. |
+| **k3s uploads to an S3 bucket** (R2, AWS S3…) | Off-site every 6 hours, independent of Proxmox. One more account and set of keys. The chapter shows it as an optional step. |
+| **An S3 service on the NAS** (MinIO, Garage) | Snapshots off the machine every 6 hours, but one more service to run. |
+
+k3s only uploads to **S3-compatible** storage. A backup service that speaks SFTP or rsync (for
+example a Hetzner Storage Box) can't receive snapshots directly. It's a good place for an
+off-site copy of your backup storage, which the Day 2 chapter covers.
+
+If you use a bucket, its keys go in a **Kubernetes Secret**, not in `config.yaml`, so the config
+file holds no credentials and can live in git. To **restore** onto a fresh machine there's no
+cluster to hold the Secret yet, so you pass the bucket details on the command line.
+
+### Why keep Traefik, ServiceLB and local-path?
+They're already there, they work, and they fit one machine. Traefik is also what many Docker
+setups already use for ingress. Replacing them is easy later (k3s can disable each one), and each
+replacement would be one more thing to learn before your first app runs. local-path volumes are
+plain folders on one machine. That's fine here, because the whole cluster is one machine. A second
+machine would bring a replicated storage choice, and that's on the roadmap.
+
+### Why pin the k3s version?
+So installing again (on a rebuilt machine) gives the same cluster as before. Upgrades happen when
+you choose to, one minor version at a time, after a snapshot. That's covered in the Day 2 chapter.
+

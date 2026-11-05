@@ -48,3 +48,4 @@ Pasa a tu agente una de esas URLs y pídele que te guíe por un capítulo.
 |---|---|
 | 0 · Plan | `plan` |
 | 1 · La máquina | `machine` |
+| 2 · El clúster | `cluster` |
