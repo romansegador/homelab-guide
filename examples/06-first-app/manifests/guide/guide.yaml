@@ -1,0 +1,92 @@
+# The guide as a static site: nginx serving the files baked into the image.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: guide
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: guide
+  namespace: guide
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: guide
+  template:
+    metadata:
+      labels:
+        app: guide
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: guide
+          # The version you deploy. To release, change only this tag, then commit and push.
+          image: ghcr.io/<YOUR_GITHUB_USER>/homelab-guide:0.1.0
+          ports:
+            - name: http
+              containerPort: 8080
+          # Kubernetes sends traffic only once the page answers, and restarts nginx if it stops.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          # The container can't change its own files or gain privileges. nginx writes only to /tmp.
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: guide
+  namespace: guide
+spec:
+  selector:
+    app: guide
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# The guide's address, covered by the wildcard DNS record and certificate from chapter 5.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: guide
+  namespace: guide
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: guide.lab.home.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: guide
+                port:
+                  name: http

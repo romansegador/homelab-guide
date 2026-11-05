@@ -74,6 +74,11 @@ export default defineConfig({
 					translations: { es: '5 · HTTPS' },
 					items: [{ slug: 'https/certificates-and-dns' }],
 				},
+				{
+					label: '6 · Your first app',
+					translations: { es: '6 · Tu primera aplicación' },
+					items: [{ slug: 'first-app/publish-and-deploy' }],
+				},
 			],
 		}),
 	],

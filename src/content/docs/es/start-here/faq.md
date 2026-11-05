@@ -377,3 +377,68 @@ Traefik gestiona HTTPS para todas las aplicaciones con el mismo certificado, y p
 la aplicación dentro del clúster. Si ArgoCD mantuviera también su propio HTTPS autofirmado, habría
 que decirle a Traefik que confiara en él. La herramienta de línea de comandos `argocd` también
 funciona a través de Traefik, con su opción `--grpc-web`.
+
+## Capítulo 6 · Tu primera aplicación
+
+### ¿Por qué GitHub Container Registry?
+Está junto al código: GitHub Actions publica en él con el token propio del workflow, así que no hay
+contraseña de registro que crear ni guardar. Las imágenes públicas son gratis, y cualquiera puede
+descargarlas sin iniciar sesión, también tu clúster.
+
+| Alternativa | Cuándo elegirla |
+|---|---|
+| **Docker Hub** | Si tus imágenes ya viven ahí. Necesita un token de acceso guardado en GitHub, y limita cuántas veces pueden descargar los usuarios anónimos. |
+| **Un registro en tu clúster** (Zot, Harbor) | Si las imágenes no pueden salir de casa. Es un servicio más que mantener, copiar y proteger, y tu clúster pasa a depender de sí mismo para arrancar sus aplicaciones. |
+| **El registro de tu proveedor cloud** | Si ya despliegas allí. |
+
+### ¿Por qué publicar con una etiqueta de git, y no en cada merge?
+Una etiqueta es una decisión: «esto es una versión». Cada versión recibe un número legible, y su
+imagen no cambia nunca. Publicar en cada merge da una imagen por commit, con nombres como
+`sha-1a2b3c4` que dicen poco, y muchas imágenes que limpiar. Los pull requests siguen construyendo
+la imagen, sin publicarla, así que un `Dockerfile` roto aparece antes del merge.
+
+### ¿Por qué la etiqueta de la imagen pierde la `v`?
+`v0.1.0` es la convención de git, y `0.1.0` la de las imágenes. La regla `type=semver` del workflow
+convierte una en otra, e ignora las etiquetas que no son versiones.
+
+### ¿Por qué cambiar la versión a mano en el repositorio de configuración?
+Así cada despliegue es un commit tuyo: ves qué cambió, cuándo, y lo deshaces con `git revert`.
+Automatizarlo supone dar a alguna herramienta acceso de escritura a tu repositorio de configuración,
+o ejecutar un componente más en el clúster. El capítulo 8 lo hace, cuando una aplicación real
+publique lo bastante a menudo como para necesitarlo.
+
+### ¿Por qué YAML sin más, y no Kustomize o un chart de Helm?
+Una aplicación, un entorno: un Deployment, un Service y un Ingress lo dicen todo, y la versión es una
+línea. **Helm** es la forma estándar de *empaquetar* software para que otros lo instalen, y por eso
+las herramientas de los capítulos 3 a 5 vienen como charts. Para tus *propias* aplicaciones, los
+equipos usan tanto Helm como **Kustomize**. Kustomize viene integrado en `kubectl` y ArgoCD, y
+encaja con «la misma aplicación con pequeños cambios para dev y prod». Un chart compensa cuando
+necesitas lógica de plantillas, o instalas la misma aplicación muchas veces. El capítulo 8 vuelve a
+esto con una aplicación de varios servicios.
+
+### ¿Por qué un nginx sin privilegios, con el sistema de ficheros de solo lectura?
+Un sitio estático no necesita más. El contenedor funciona como un usuario normal, no puede ganar
+privilegios, no puede cambiar sus propios ficheros, y solo escribe en una carpeta temporal. Si
+alguien encontrara un fallo en nginx, poco podría hacer con él. Cuesta unas pocas líneas de YAML.
+
+### ¿Por qué construir para amd64 y arm64?
+Para que la misma imagen funcione en un mini PC y en una Raspberry Pi. El sitio es HTML, CSS y JS,
+igual en todas las plataformas, así que se construye una sola vez, de forma nativa, y solo cambia
+la pequeña capa de nginx. Así se evita emular arm64, que haría CI mucho más lento.
+
+### ¿Qué es el registro de construcción (attestation)?
+Una declaración firmada, guardada con la imagen, que dice qué repositorio, commit y workflow la
+construyeron. `gh attestation verify` la comprueba. Te permite demostrar que una imagen salió de tu
+CI y no del portátil de alguien, y cuesta un paso en el workflow.
+
+### ¿Por qué las GitHub Actions se fijan por versión mayor, y no por commit?
+`actions/checkout@v7` recibe correcciones automáticamente, y las actions que se usan aquí son de
+GitHub y de Docker. Fijar cada action a un commit protege mejor ante una action comprometida, pero
+cada actualización pasa a ser un cambio manual. Herramientas como Dependabot o Renovate lo
+facilitan, y merece la pena añadirlas cuando tengas varios repositorios.
+
+### ¿Y si mi imagen es privada?
+Entonces el clúster necesita credenciales para descargarla: un token del registro, guardado en el
+gestor de secretos, copiado al namespace de la aplicación con un ExternalSecret de tipo
+`kubernetes.io/dockerconfigjson`, y nombrado en el `imagePullSecrets` del Deployment. El capítulo 8
+lo hace para una aplicación privada.
