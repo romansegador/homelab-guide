@@ -172,7 +172,9 @@ In your tool, create a PostgreSQL connection with:
   adds nothing here. Worse, when the database closes an SSL connection (after a wrong password, for
   example), the port-forward breaks with `lost connection to pod`, and you have to start it again.
 
-The `notes` table with your row is there. Stop the tunnel with Ctrl+C when you're done. To reach
+The `notes` table with your row is there. Your tool is logged in as `app`, an ordinary user, not
+as the superuser: admin statements such as `pg_switch_wal()` only work from the `kubectl exec`
+shell. Stop the tunnel with Ctrl+C when you're done. To reach
 any other database later, change the namespace and the cluster name: the service is always
 `<cluster>-rw`, and the Secret is `<cluster>-app`.
 

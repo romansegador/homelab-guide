@@ -181,7 +181,9 @@ En tu herramienta, crea una conexión PostgreSQL con:
   contraseña incorrecta, por ejemplo), el port-forward se rompe con `lost connection to pod`, y hay
   que volver a lanzarlo.
 
-La tabla `notes` con tu fila está ahí. Cierra el túnel con Ctrl+C cuando termines. Para llegar a
+La tabla `notes` con tu fila está ahí. Tu herramienta ha iniciado sesión como `app`, un usuario
+normal, no como el superusuario: las sentencias de administración como `pg_switch_wal()` solo
+funcionan desde la consola de `kubectl exec`. Cierra el túnel con Ctrl+C cuando termines. Para llegar a
 cualquier otra base de datos más adelante, cambia el namespace y el nombre del clúster: el servicio
 es siempre `<cluster>-rw`, y el Secret es `<cluster>-app`.
 
