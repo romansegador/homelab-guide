@@ -533,7 +533,8 @@ de que pasara. Lo bastante poco para que ocupe poco. Cambia `retentionPolicy` si
 ### ¿Por qué un port-forward para conectar una herramienta de bases de datos, y no abrir la base de datos a la red?
 `kubectl port-forward` no abre nada nuevo. La base de datos sigue siendo accesible solo dentro del
 clúster, el túnel solo existe mientras el comando está en marcha, y solo quien tiene tu kubeconfig
-puede abrirlo. Funciona igual para cada base de datos que añadas después.
+puede abrirlo. Funciona igual para cada base de datos que añadas después. El túnel además va
+cifrado hasta el clúster, y por eso el SSL de la propia herramienta se queda desactivado.
 
 Las alternativas son una apertura permanente:
 - **Exponer el puerto 5432** a través de Traefik (como ruta TCP) o de un servicio LoadBalancer.

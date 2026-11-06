@@ -129,11 +129,18 @@ kubectl -n demo-db exec -it demo-1 -c postgres -- psql -d app
 Then run these statements, one line at a time:
 
 ```sql
+SET ROLE app;
 CREATE TABLE notes (id serial PRIMARY KEY, body text);
 INSERT INTO notes (body) VALUES ('written after the first backup');
+RESET ROLE;
 SELECT pg_switch_wal();
 \q
 ```
+
+`kubectl exec` connects as `postgres`, the database's superuser. `SET ROLE app` switches to the
+`app` user first, so the table belongs to `app`, like the tables your app will create. Without it,
+`app` couldn't read the table. `RESET ROLE` switches back to `postgres`, because only the
+superuser may close a WAL file.
 
 The new row only exists in the WAL so far, not in any full backup. `pg_switch_wal()` closes the
 current WAL file now, so it goes to the bucket now instead of within five minutes.
@@ -161,9 +168,9 @@ kubectl -n demo-db get secret demo-app -o jsonpath='{.data.password}' | base64 -
 In your tool, create a PostgreSQL connection with:
 - host `localhost`, port `15432`,
 - database `app`, user `app`, and that password,
-- SSL mode `require` (or `prefer`). The server's certificate comes from the operator's own
-  authority, so a mode that also checks the certificate (`verify-full`) fails, unless you give the
-  tool the authority from the Secret `demo-ca`.
+- SSL **off** (`disable`). The tunnel is already encrypted from your laptop to the cluster, so SSL
+  adds nothing here. Worse, when the database closes an SSL connection (after a wrong password, for
+  example), the port-forward breaks with `lost connection to pod`, and you have to start it again.
 
 The `notes` table with your row is there. Stop the tunnel with Ctrl+C when you're done. To reach
 any other database later, change the namespace and the cluster name: the service is always

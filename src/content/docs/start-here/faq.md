@@ -493,7 +493,8 @@ Short enough to stay small. Change `retentionPolicy` if you need more.
 ### Why a port-forward to connect a database tool, and not open the database to the network?
 `kubectl port-forward` opens nothing new. The database stays reachable only inside the cluster, the
 tunnel exists only while the command runs, and only someone with your kubeconfig can open it. It
-works the same for every database you add later.
+works the same for every database you add later. The tunnel is also encrypted on its way to the
+cluster, which is why the tool's own SSL stays off.
 
 The alternatives are a permanent opening:
 - **Expose port 5432** through Traefik (as a TCP route) or a LoadBalancer service. Then every

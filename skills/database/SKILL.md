@@ -68,8 +68,10 @@ Example files: `examples/07-database/` (`apps/cloudnative-pg.yaml`, `apps/plugin
 ## Connect a database tool (DBeaver, DbGate…)
 
 - The user runs `kubectl -n <ns> port-forward svc/<cluster>-rw 15432:5432` and connects to
-  `localhost:15432`, database and user `app`, SSL mode `require` (the certificate comes from the
-  operator's own authority, so `verify-full` fails without the `<cluster>-ca` Secret).
+  `localhost:15432`, database and user `app`, SSL off: the tunnel is already encrypted, and an SSL
+  session closed by the server (e.g. a wrong password) kills the port-forward (`lost connection to pod`).
+- Tables created through `kubectl exec … psql` belong to `postgres` unless you `SET ROLE app;` first;
+  `app` then gets `permission denied`. Fix: `ALTER TABLE <t> OWNER TO app;` (user's OK).
 - The password is in the Secret `<cluster>-app` (key `password`). The user reads it; you never do.
 - Don't expose port 5432 to the network (Traefik TCP, LoadBalancer) unless the user asks for it.
 

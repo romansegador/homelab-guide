@@ -137,11 +137,18 @@ kubectl -n demo-db exec -it demo-1 -c postgres -- psql -d app
 Después ejecuta estas sentencias, una línea cada vez:
 
 ```sql
+SET ROLE app;
 CREATE TABLE notes (id serial PRIMARY KEY, body text);
 INSERT INTO notes (body) VALUES ('written after the first backup');
+RESET ROLE;
 SELECT pg_switch_wal();
 \q
 ```
+
+`kubectl exec` se conecta como `postgres`, el superusuario de la base de datos. `SET ROLE app`
+cambia antes al usuario `app`, para que la tabla pertenezca a `app`, como las tablas que creará tu
+aplicación. Sin eso, `app` no podría leer la tabla. `RESET ROLE` vuelve a `postgres`, porque solo el superusuario
+puede cerrar un fichero WAL.
 
 Por ahora, la fila nueva solo existe en el WAL, no en ninguna copia completa. `pg_switch_wal()`
 cierra el fichero WAL actual ya, así que va al bucket ahora en vez de en cinco minutos.
@@ -169,9 +176,10 @@ kubectl -n demo-db get secret demo-app -o jsonpath='{.data.password}' | base64 -
 En tu herramienta, crea una conexión PostgreSQL con:
 - host `localhost`, puerto `15432`,
 - base de datos `app`, usuario `app`, y esa contraseña,
-- modo SSL `require` (o `prefer`). El certificado del servidor lo emite la propia autoridad del
-  operador, así que un modo que también comprueba el certificado (`verify-full`) falla, salvo que
-  le des a la herramienta la autoridad del Secret `demo-ca`.
+- SSL **desactivado** (`disable`). El túnel ya va cifrado desde tu portátil hasta el clúster, así
+  que SSL no añade nada aquí. Peor aún: cuando la base de datos cierra una conexión SSL (tras una
+  contraseña incorrecta, por ejemplo), el port-forward se rompe con `lost connection to pod`, y hay
+  que volver a lanzarlo.
 
 La tabla `notes` con tu fila está ahí. Cierra el túnel con Ctrl+C cuando termines. Para llegar a
 cualquier otra base de datos más adelante, cambia el namespace y el nombre del clúster: el servicio
