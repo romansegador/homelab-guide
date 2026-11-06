@@ -1,0 +1,6 @@
+# Declared here, not created by ArgoCD's CreateNamespace option, so that removing the app removes the
+# namespace too: ArgoCD only deletes what it manages from git.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-db
