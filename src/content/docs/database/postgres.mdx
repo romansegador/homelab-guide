@@ -138,6 +138,37 @@ SELECT pg_switch_wal();
 The new row only exists in the WAL so far, not in any full backup. `pg_switch_wal()` closes the
 current WAL file now, so it goes to the bucket now instead of within five minutes.
 
+**Connect from your laptop.** A database tool such as [DBeaver](https://dbeaver.io) or
+[DbGate](https://dbgate.org) can't reach the database directly: it's only reachable inside the
+cluster. `kubectl port-forward` opens a tunnel to it from your laptop, for as long as the command
+runs:
+
+```sh title="Laptop"
+kubectl -n demo-db port-forward svc/demo-rw 15432:5432
+```
+
+`demo-rw` is the service the operator creates for the primary instance, the one you can write to.
+Leave the command running. The local port is `15432` rather than `5432`, so it doesn't collide with a
+Postgres already running on your laptop.
+
+The operator keeps the `app` user's password in the Secret `demo-app`. In a second terminal, print
+it:
+
+```sh title="Laptop"
+kubectl -n demo-db get secret demo-app -o jsonpath='{.data.password}' | base64 -d; echo
+```
+
+In your tool, create a PostgreSQL connection with:
+- host `localhost`, port `15432`,
+- database `app`, user `app`, and that password,
+- SSL mode `require` (or `prefer`). The server's certificate comes from the operator's own
+  authority, so a mode that also checks the certificate (`verify-full`) fails, unless you give the
+  tool the authority from the Secret `demo-ca`.
+
+The `notes` table with your row is there. Stop the tunnel with Ctrl+C when you're done. To reach
+any other database later, change the namespace and the cluster name: the service is always
+`<cluster>-rw`, and the Secret is `<cluster>-app`.
+
 **Restore into a new database.** Copy `restore/demo-restore.yaml` into `manifests/demo-db/`, then
 commit and push. The operator builds a new cluster, `demo-restore`, from the bucket alone: the full
 backup, then the WAL after it. After a few minutes:

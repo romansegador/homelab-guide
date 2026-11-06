@@ -529,3 +529,23 @@ copias.
 ### ¿Por qué 14 días de retención?
 Lo bastante para notar un problema, como una migración mala o filas borradas, y restaurar a antes
 de que pasara. Lo bastante poco para que ocupe poco. Cambia `retentionPolicy` si necesitas más.
+
+### ¿Por qué un port-forward para conectar una herramienta de bases de datos, y no abrir la base de datos a la red?
+`kubectl port-forward` no abre nada nuevo. La base de datos sigue siendo accesible solo dentro del
+clúster, el túnel solo existe mientras el comando está en marcha, y solo quien tiene tu kubeconfig
+puede abrirlo. Funciona igual para cada base de datos que añadas después.
+
+Las alternativas son una apertura permanente:
+- **Exponer el puerto 5432** a través de Traefik (como ruta TCP) o de un servicio LoadBalancer.
+  Entonces cualquier máquina de la red puede intentar iniciar sesión, así que querrías TLS
+  comprobado de extremo a extremo y también reglas de red. Merece la pena cuando otras máquinas
+  necesitan acceso constante, por ejemplo una herramienta de informes en otro servidor.
+- **Una herramienta web de bases de datos en el clúster** (pgAdmin, DbGate). Cómoda desde cualquier
+  navegador, pero es una aplicación más en la que iniciar sesión, que proteger y que mantener al
+  día, con las contraseñas de todas las bases de datos dentro.
+
+### ¿Por qué la demostración declara su propio namespace?
+La opción `CreateNamespace=true` de ArgoCD crea un namespace si falta, pero ArgoCD nunca borra un
+namespace creado así. Declarado como fichero en la carpeta de la aplicación, el namespace se
+gestiona como todo lo demás, así que quitar la aplicación también lo quita. Las aplicaciones de
+charts de Helm (cert-manager, el operador) mantienen la opción: se quedan instaladas.

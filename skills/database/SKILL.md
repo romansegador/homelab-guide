@@ -65,6 +65,14 @@ Example files: `examples/07-database/` (`apps/cloudnative-pg.yaml`, `apps/plugin
 - Restore cluster stuck: no completed base backup yet, or `serverName` doesn't match the original
   cluster's name.
 
+## Connect a database tool (DBeaver, DbGate…)
+
+- The user runs `kubectl -n <ns> port-forward svc/<cluster>-rw 15432:5432` and connects to
+  `localhost:15432`, database and user `app`, SSL mode `require` (the certificate comes from the
+  operator's own authority, so `verify-full` fails without the `<cluster>-ca` Secret).
+- The password is in the Secret `<cluster>-app` (key `password`). The user reads it; you never do.
+- Don't expose port 5432 to the network (Traefik TCP, LoadBalancer) unless the user asks for it.
+
 ## Verify
 
 - `ContinuousArchiving` is `True`; the bucket has `demo/base/` and `demo/wals/`.

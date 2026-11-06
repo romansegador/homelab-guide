@@ -146,6 +146,37 @@ SELECT pg_switch_wal();
 Por ahora, la fila nueva solo existe en el WAL, no en ninguna copia completa. `pg_switch_wal()`
 cierra el fichero WAL actual ya, así que va al bucket ahora en vez de en cinco minutos.
 
+**Conéctate desde tu portátil.** Una herramienta de bases de datos como
+[DBeaver](https://dbeaver.io) o [DbGate](https://dbgate.org) no puede llegar a la base de datos
+directamente: solo es accesible dentro del clúster. `kubectl port-forward` abre un túnel hasta ella
+desde tu portátil, mientras el comando esté en marcha:
+
+```sh title="Portátil"
+kubectl -n demo-db port-forward svc/demo-rw 15432:5432
+```
+
+`demo-rw` es el servicio que el operador crea para la instancia principal, la que admite escrituras.
+Deja el comando en marcha. El puerto local es `15432` y no `5432`, para no chocar con un Postgres
+que ya tengas en tu portátil.
+
+El operador guarda la contraseña del usuario `app` en el Secret `demo-app`. En una segunda
+terminal, muéstrala:
+
+```sh title="Portátil"
+kubectl -n demo-db get secret demo-app -o jsonpath='{.data.password}' | base64 -d; echo
+```
+
+En tu herramienta, crea una conexión PostgreSQL con:
+- host `localhost`, puerto `15432`,
+- base de datos `app`, usuario `app`, y esa contraseña,
+- modo SSL `require` (o `prefer`). El certificado del servidor lo emite la propia autoridad del
+  operador, así que un modo que también comprueba el certificado (`verify-full`) falla, salvo que
+  le des a la herramienta la autoridad del Secret `demo-ca`.
+
+La tabla `notes` con tu fila está ahí. Cierra el túnel con Ctrl+C cuando termines. Para llegar a
+cualquier otra base de datos más adelante, cambia el namespace y el nombre del clúster: el servicio
+es siempre `<cluster>-rw`, y el Secret es `<cluster>-app`.
+
 **Restaura en una base de datos nueva.** Copia `restore/demo-restore.yaml` en `manifests/demo-db/`,
 y haz commit y push. El operador construye un clúster nuevo, `demo-restore`, solo desde el bucket:
 la copia completa y después el WAL posterior. Tras unos minutos:

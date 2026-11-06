@@ -489,3 +489,22 @@ alone is enough, without touching the original. Do it again whenever you change 
 ### Why a 14-day retention?
 Long enough to notice a problem, like a bad migration or deleted rows, and restore to before it.
 Short enough to stay small. Change `retentionPolicy` if you need more.
+
+### Why a port-forward to connect a database tool, and not open the database to the network?
+`kubectl port-forward` opens nothing new. The database stays reachable only inside the cluster, the
+tunnel exists only while the command runs, and only someone with your kubeconfig can open it. It
+works the same for every database you add later.
+
+The alternatives are a permanent opening:
+- **Expose port 5432** through Traefik (as a TCP route) or a LoadBalancer service. Then every
+  machine on the network can try to log in, so you'd want TLS checked end to end and network rules
+  too. Worth it when other machines need constant access, for example a reporting tool on another
+  server.
+- **A web database tool in the cluster** (pgAdmin, DbGate). Handy from any browser, but it's one
+  more app to log in to, secure and keep updated, with the passwords of every database inside it.
+
+### Why does the demo declare its own namespace?
+ArgoCD's `CreateNamespace=true` option creates a namespace if it's missing, but ArgoCD never deletes
+a namespace it made that way. Declared as a file in the app's folder, the namespace is managed like
+everything else, so removing the app removes it too. The Helm-chart apps (cert-manager, the
+operator) keep the option: they stay installed.
