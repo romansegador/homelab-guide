@@ -1,0 +1,30 @@
+# One Postgres server with a database called "app", owned by a user called "app". The operator
+# creates the user's password and stores it in the Secret demo-app, next to the database.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: demo
+  namespace: demo-db
+spec:
+  # One machine, so one instance. A second one would share the same disk, and protect nothing.
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.6-standard-trixie
+  storage:
+    size: 5Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  bootstrap:
+    initdb:
+      database: app
+      owner: app
+  # Send every finished WAL file to the object store as it's written. With the daily backups, that
+  # lets you restore to any moment, not just to last night.
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: offsite

@@ -186,6 +186,23 @@ Para que instalar de nuevo (en una máquina reconstruida) dé el mismo clúster 
 actualizaciones ocurren cuando tú decides, de una versión menor en una, después de una instantánea.
 Se trata en el capítulo de operación diaria.
 
+### ¿Por qué el script de instalación cambia un ajuste de AppArmor?
+Ubuntu 26.04 activa `kernel.apparmor_restrict_unprivileged_unconfined` por defecto. Con él
+activado, cada contenedor se ejecuta con una etiqueta de AppArmor «apilada»
+(`cri-containerd.apparmor.d//&unconfined`) que el perfil del propio runtime de contenedores no
+espera. El resultado: **los procesos de un mismo contenedor no pueden enviarse señales.** La
+mayoría de aplicaciones no lo notan. Postgres sí: sus procesos se despiertan unos a otros con
+señales, así que la primera conexión espera para siempre y la base de datos nunca termina de
+arrancar (capítulo 7). El registro del kernel lo muestra como `apparmor="DENIED" operation="signal"`.
+
+El script desactiva solo ese ajuste en `/etc/sysctl.d/20-apparmor.conf`, el fichero de sobrescritura
+que indica la propia configuración de Ubuntu. Los contenedores siguen con su perfil de AppArmor,
+solo que sin la etiqueta apilada. La solución corresponde al runtime de contenedores
+([containerd#14485](https://github.com/containerd/containerd/issues/14485)). Cuando una versión de
+k3s la incluya, el ajuste puede volver a activarse. Si instalaste k3s antes de que el script lo
+hiciera, añade el fichero y reinicia la máquina, porque los contenedores en marcha conservan su
+etiqueta antigua.
+
 
 ## Capítulo 3 · GitOps
 
@@ -442,3 +459,94 @@ Entonces el clúster necesita credenciales para descargarla: un token del regist
 gestor de secretos, copiado al namespace de la aplicación con un ExternalSecret de tipo
 `kubernetes.io/dockerconfigjson`, y nombrado en el `imagePullSecrets` del Deployment. El capítulo 8
 lo hace para una aplicación privada.
+
+## Capítulo 7 · Una base de datos
+
+### ¿Por qué un operador, y no un contenedor de Postgres sin más?
+Un contenedor de Postgres con un volumen funciona bien, hasta que necesitas una copia de seguridad
+fiable, una restauración, o una actualización de versión mayor. Entonces escribes scripts para cada
+una. Un operador ya sabe hacerlo: hace copias coherentes, archiva el WAL de forma continua, restaura
+en un clúster nuevo con un fichero YAML, y hace las actualizaciones en el orden correcto. Un
+contenedor sin más con un `pg_dump` nocturno es más sencillo, pero solo te da los datos de anoche,
+y la restauración la pruebas a mano.
+
+### ¿Por qué CloudNativePG?
+Es el operador de Postgres más usado, un proyecto de la CNCF, y hecho para Kubernetes desde el
+principio. Las copias de seguridad, la recuperación a un punto en el tiempo y las restauraciones
+forman parte del fichero Cluster.
+
+| Alternativa | Cuándo elegirla |
+|---|---|
+| **Crunchy PGO** | Si quieres pgBackRest, una herramienta de copias muy madura. Es más pesado, y aun así necesita almacenamiento de objetos para las copias fuera de casa. |
+| **Zalando postgres-operator** | Si ya lo conoces. Es más antiguo, y sus copias (WAL-G) necesitan más preparación. |
+| **Un contenedor sin más + `pg_dump`** | Para una base de datos de usar y tirar, o si tus copias solo pueden ir a un sitio que no es almacenamiento de objetos (por ejemplo SFTP). |
+
+### ¿Qué versiones, y por qué?
+CloudNativePG 1.30, la más reciente. Soporta oficialmente Kubernetes 1.34 a 1.36, y la 1.37, la que
+usa esta guía, aparece como «probada, pero no soportada»: el proyecto ejecuta sus pruebas en
+ella, pero no promete arreglar los problemas que solo aparezcan ahí. Postgres 18 es la versión más
+reciente que soporta.
+
+### ¿Por qué el plugin Barman Cloud, y no las copias integradas del operador?
+CloudNativePG hacía antes las copias a almacenamiento de objetos él mismo (`barmanObjectStore` en el
+Cluster). Eso está obsoleto en favor del plugin, que saca el código de copias del operador y de la
+imagen de Postgres. Las instalaciones nuevas deben usar el plugin. Necesita cert-manager, que ya
+tienes.
+
+### ¿Por qué una sola instancia?
+En una sola máquina, una segunda instancia estaría en el mismo disco, en la misma caja: si la
+máquina falla, fallan las dos. Doblaría la memoria y no protegería nada. Con una segunda máquina,
+pon `instances: 2`, y el operador añade una réplica y gestiona el relevo.
+
+### ¿Por qué Cloudflare R2 para las copias?
+CloudNativePG hace las copias en almacenamiento de objetos compatible con S3, y R2 es compatible con
+S3, está fuera de casa, y tiene un plan gratuito en el que cabe de sobra la base de datos de un
+homelab: 10 GB de almacenamiento, un millón de escrituras y diez millones de lecturas al mes, por
+cuenta (no por bucket). Una base de datos pequeña con 14 días de copias y WAL usa una fracción de
+eso. R2 tampoco cobra las descargas, así que restaurar no cuesta nada.
+
+Si prefieres guardar las copias en casa, ejecuta almacenamiento compatible con S3 en tu NAS (por
+ejemplo Garage), y cópialo fuera de casa por separado. Un servicio de almacenamiento que solo habla
+SFTP (como una Hetzner Storage Box) no funciona directamente con el plugin.
+
+### ¿Las copias están cifradas?
+R2 cifra todo lo que guarda, y la conexión usa HTTPS. El plugin no puede cifrar las copias él
+mismo antes de que salgan del clúster. Por eso la clave de acceso solo llega a un bucket, y solo
+vive en el gestor de secretos.
+
+### ¿Por qué dejar que el operador cree las contraseñas?
+Crea una contraseña fuerte para el usuario de la aplicación, la guarda en un Secret junto a la base
+de datos, y la aplicación la lee de ahí. Nadie la teclea, y nunca toca git ni tu portátil. Una
+contraseña del gestor de secretos sería un valor más que crear y mantener sincronizado, sin ganar
+nada, porque solo la usa la aplicación dentro del clúster. El superusuario de Postgres no tiene
+contraseña ni acceso por red: `kubectl exec` es la forma de abrir una consola de administración.
+
+### ¿Por qué restaurar en este capítulo, y no más adelante?
+Una copia que nunca has restaurado es una esperanza. Restaurar en un segundo clúster demuestra que
+el bucket basta por sí solo, sin tocar el original. Repítelo cada vez que cambies cómo se hacen las
+copias.
+
+### ¿Por qué 14 días de retención?
+Lo bastante para notar un problema, como una migración mala o filas borradas, y restaurar a antes
+de que pasara. Lo bastante poco para que ocupe poco. Cambia `retentionPolicy` si necesitas más.
+
+### ¿Por qué un port-forward para conectar una herramienta de bases de datos, y no abrir la base de datos a la red?
+`kubectl port-forward` no abre nada nuevo. La base de datos sigue siendo accesible solo dentro del
+clúster, el túnel solo existe mientras el comando está en marcha, y solo quien tiene tu kubeconfig
+puede abrirlo. Funciona igual para cada base de datos que añadas después. El túnel además va
+cifrado hasta el clúster, y por eso el SSL de la propia herramienta se queda desactivado.
+
+Las alternativas son una apertura permanente:
+- **Exponer el puerto 5432** a través de Traefik (como ruta TCP) o de un servicio LoadBalancer.
+  Entonces cualquier máquina de la red puede intentar iniciar sesión, así que querrías TLS
+  comprobado de extremo a extremo y también reglas de red. Merece la pena cuando otras máquinas
+  necesitan acceso constante, por ejemplo una herramienta de informes en otro servidor.
+- **Una herramienta web de bases de datos en el clúster** (pgAdmin, DbGate). Cómoda desde cualquier
+  navegador, pero es una aplicación más en la que iniciar sesión, que proteger y que mantener al
+  día, con las contraseñas de todas las bases de datos dentro.
+
+### ¿Por qué la demostración declara su propio namespace?
+La opción `CreateNamespace=true` de ArgoCD crea un namespace si falta, pero ArgoCD nunca borra un
+namespace creado así. Declarado como fichero en la carpeta de la aplicación, el namespace se
+gestiona como todo lo demás, así que quitar la aplicación también lo quita. Las aplicaciones de
+charts de Helm (cert-manager, el operador) mantienen la opción: se quedan instaladas.

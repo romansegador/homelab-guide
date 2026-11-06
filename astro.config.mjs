@@ -79,6 +79,11 @@ export default defineConfig({
 					translations: { es: '6 · Tu primera aplicación' },
 					items: [{ slug: 'first-app/publish-and-deploy' }],
 				},
+				{
+					label: '7 · A database',
+					translations: { es: '7 · Una base de datos' },
+					items: [{ slug: 'database/postgres' }],
+				},
 			],
 		}),
 	],
