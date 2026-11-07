@@ -17,6 +17,15 @@ seccompProfile:
   type: RuntimeDefault
 {{- end }}
 
+{{/* Asleep, Sablier scales the group up and down, so the Deployments leave out their replica count:
+otherwise ArgoCD would set it back. */}}
+{{- define "notes.sleepLabels" -}}
+{{- if .Values.sleep.enabled }}
+sablierapp.dev/enable: "true"
+sablierapp.dev/group: {{ .Release.Name }}
+{{- end }}
+{{- end }}
+
 {{/* The database's connection string, from the Secret the operator creates (<cluster>-app). */}}
 {{- define "notes.databaseEnv" -}}
 - name: DATABASE_URL

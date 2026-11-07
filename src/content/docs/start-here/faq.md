@@ -638,3 +638,46 @@ The Python image installs its libraries for each platform, so unlike chapter 6's
 arm64 build can't just reuse the amd64 one. The CI machine emulates arm64 for that part. It's
 slower, a few minutes, but needs no extra setup. If you only run amd64 machines, remove
 `linux/arm64` from the workflow to halve the build time.
+
+### Why Sablier, to put staging to sleep?
+It does one job: scale a group of Deployments to zero after a while without requests, and back up
+on the next one, with a waiting page meanwhile. It runs as one small pod, and plugs into Traefik,
+which the cluster already has. Alternatives:
+- **KEDA's HTTP add-on** scales on HTTP traffic too, and can run several copies under load. It's
+  heavier: an operator, an interceptor that every request passes through, and a scaler. Worth it if
+  you also need autoscaling.
+- **Knative** turns apps into serverless services that scale to zero. It replaces how you deploy
+  apps, which is far more than this needs.
+- **A schedule** (kube-downscaler, or a CronJob) scales staging down at night and up in the
+  morning. Simpler, but it doesn't wake on demand: a visit at night finds nothing.
+- **By hand**: set the replicas to 0 in git when you're done. No new component, but you have to
+  remember, and to wake it again.
+
+### Why only staging, and not prod?
+A sleeping app takes about 15 seconds to answer the first visit. Fine for something only you test,
+not for something you depend on. Prod also gets requests you don't make yourself: health checks,
+other apps, a phone that syncs.
+
+### Why does the database stay awake?
+Sablier can put a CloudNativePG database to sleep too (it calls this hibernation). Waking it means
+reattaching its disk and starting Postgres, which takes longer than starting the app. An idle
+Postgres uses little memory and almost no CPU, so the saving is small for the extra wait. On a
+very small machine, you could add the database to the group as well.
+
+### Why does Sablier need to read the database clusters?
+Because the CloudNativePG operator is installed, Sablier 1.19.1 lists its clusters every time it
+refreshes its groups. Without permission to list them, every refresh fails, for all groups, and
+Sablier logs the error every few seconds. Read access is enough to stop that. Without `patch`, it
+still can't put a database to sleep.
+
+### Why tell ArgoCD to ignore the replica count?
+Sablier changes the number of replicas, and ArgoCD changes the cluster back to what git says. Both
+would win in turn, and staging would never stay asleep. So, with sleep on, the chart leaves the
+replica count out, and the Application ignores that field (`ignoreDifferences` with
+`RespectIgnoreDifferences`). Everything else in the Deployments still follows git, including the
+image tags Image Updater changes.
+
+### Why plain files for Sablier, and not its Helm chart?
+When this was written, Sablier's chart still installed an older version (1.16) than the latest
+release (1.19). Plain files pin the exact version, and they're short: an account, its permissions,
+one Deployment and one Service.

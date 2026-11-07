@@ -1,0 +1,128 @@
+---
+title: "Optional: sleep when idle"
+description: Put staging to sleep after 30 minutes without visits, and wake it on the next one, with Sablier and a Traefik plugin. ArgoCD is told to leave the replica count alone.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+Staging runs all day, but you only look at it now and then. This optional page makes it **sleep**:
+after 30 minutes without a visit, its API, worker and page scale to zero. The next visit shows a
+waiting page, and the app is back in about 15 seconds. Prod keeps running.
+
+It saves memory and CPU on a small machine, which matters once you have several environments.
+Skip this page if your machine has room to spare.
+
+**Tested with:** Sablier 1.19.1 and its Traefik plugin 1.4.0, on k3s v1.37.2+k3s1 (Traefik 3.7)
+with ArgoCD 3.6.1.
+
+## A few ideas first
+
+### How it works
+```text
+browser ──▶ Traefik ──▶ sablier middleware ──asks──▶ Sablier ── is notes-staging awake?
+                              │                         │  no: scale api, worker, web to 1
+                              │                         │      and answer "not ready yet"
+                              ▼                         ▼
+               waiting page (checks every 3 s)  ...until every pod is ready
+                              │
+                              ▼
+                         the app, as usual.  30 minutes after the last request: scale to 0
+```
+
+- **Sablier** runs in the cluster. It knows which Deployments may sleep, by a label, and in which
+  **group**: here `notes-staging`, so one visit wakes the API, the worker and the page together.
+- A **Traefik plugin** asks Sablier on every request to staging. Each request also renews staging's
+  **session**. When the session runs out, Sablier scales the group to zero.
+- The **database keeps running.** Sablier can put a CloudNativePG database to sleep too, but it
+  takes longer to wake, and Postgres uses little while nobody queries it.
+
+### ArgoCD and the replica count
+ArgoCD keeps the cluster matching git, and git says "1 replica". Left alone, ArgoCD would wake
+staging as soon as Sablier put it to sleep. So, when sleep is on, the chart leaves the replica
+count out of the Deployments, and the staging Application tells ArgoCD to ignore that field.
+
+The reasoning behind each choice is in the [FAQ](/start-here/faq/#chapter-8--a-real-app).
+
+## Before you start
+
+- [ ] [Staging and prod are running](/real-app/deploy/).
+
+## Set it up
+
+<Steps>
+
+1. **Add the files to your config repository.** From
+   [`examples/08-real-app/sleep`](https://github.com/romansegador/homelab-guide/tree/main/examples/08-real-app/sleep),
+   copy into your config repository:
+   - `apps/sablier.yaml` and `manifests/sablier/`: Sablier, in its own namespace.
+   - `manifests/https/traefik.yaml`: your chapter 5 Traefik settings plus the plugin. It replaces
+     your file. If you changed yours since chapter 5, add only the `experimental:` block at its end.
+
+   In `apps/sablier.yaml`, replace `<YOUR_CONFIG_REPO_URL>`, as before.
+
+2. **Turn sleep on for staging.** In `charts/notes/values-staging.yaml`, set:
+
+   ```yaml
+   sleep:
+     enabled: true
+   ```
+
+   The chart and `apps/notes-staging.yaml` already have what this needs, from the previous page.
+   Commit and push to `main`.
+
+3. **Watch Traefik load the plugin.** k3s restarts Traefik with the new settings: every app is
+   unreachable for a few seconds. Traefik downloads the plugin from its catalog as it starts:
+
+   ```sh title="Laptop"
+   kubectl -n kube-system rollout status deployment traefik
+   kubectl -n kube-system logs deployment/traefik | grep -i plugin
+   ```
+
+   The log says `Plugins loaded.` with `sablier`. Then check Sablier:
+
+   ```sh title="Laptop"
+   kubectl -n argocd get application sablier notes-staging
+   kubectl -n sablier get pods
+   ```
+
+   Both Applications are `Synced` and `Healthy`, and the `sablier` pod is `Running`.
+
+</Steps>
+
+## Check it
+
+**It goes to sleep.** Depending on what started first, Sablier or the new staging settings,
+staging may be asleep already. If it isn't, Sablier waits for a first visit before it counts: open
+`https://notes-staging.lab.home.example.com` once, then **close the tab**. The page asks the API for
+new notes every two seconds, so an open tab keeps staging awake.
+
+After 30 minutes, staging is asleep:
+
+```sh title="Laptop"
+kubectl -n notes-staging get deployments
+kubectl -n argocd get application notes-staging
+```
+
+`api`, `web` and `worker` show `0/0`. The database pod, `notes-staging-1`, still runs. The
+Application is still `Synced` and `Healthy`: ArgoCD isn't fighting Sablier.
+
+To try it without waiting half an hour, set `sessionDuration: 3m` under `sleep:` in
+`values-staging.yaml` while you test, then remove it.
+
+**It wakes up.** Open staging again. A waiting page appears, and after about 15 seconds it turns
+into the app, with your notes still there: they're in the database, which never slept. Prod
+was never affected:
+
+```sh title="Laptop"
+kubectl -n notes-prod get deployments
+```
+
+**Turn it off.** Set `sleep.enabled: false` in `values-staging.yaml`, then commit and push. The
+chart puts the replica count back, and staging runs all the time again.
+
+## Before you move on
+
+- [ ] Staging sleeps after 30 minutes without visits, and wakes on the next one.
+- [ ] Prod runs all the time.
+- [ ] `apps/sablier.yaml`, `manifests/sablier/` and the new `manifests/https/traefik.yaml` are
+      committed in your config repository.

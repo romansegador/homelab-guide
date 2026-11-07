@@ -7,8 +7,11 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "notes.labels" . | nindent 4 }}
+    {{- include "notes.sleepLabels" . | nindent 4 }}
 spec:
+  {{- if not .Values.sleep.enabled }}
   replicas: {{ .Values.worker.replicas }}
+  {{- end }}
   selector:
     matchLabels:
       app: worker

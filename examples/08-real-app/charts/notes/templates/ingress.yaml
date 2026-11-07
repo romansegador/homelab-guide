@@ -7,6 +7,11 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "notes.labels" . | nindent 4 }}
+  {{- if .Values.sleep.enabled }}
+  annotations:
+    # Every request asks Sablier first: it wakes the app if it's asleep, and renews its session.
+    traefik.ingress.kubernetes.io/router.middlewares: {{ .Release.Namespace }}-sablier@kubernetescrd
+  {{- end }}
 spec:
   ingressClassName: traefik
   rules:

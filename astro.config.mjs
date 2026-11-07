@@ -87,7 +87,11 @@ export default defineConfig({
 				{
 					label: '8 · A real app',
 					translations: { es: '8 · Una aplicación real' },
-					items: [{ slug: 'real-app/build' }, { slug: 'real-app/deploy' }],
+					items: [
+						{ slug: 'real-app/build' },
+						{ slug: 'real-app/deploy' },
+						{ slug: 'real-app/sleep' },
+					],
 				},
 			],
 		}),

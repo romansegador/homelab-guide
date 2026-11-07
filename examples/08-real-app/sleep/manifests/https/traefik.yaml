@@ -1,0 +1,32 @@
+# Settings for the Traefik that k3s installs. k3s merges this into its own Traefik install and
+# upgrades it. Three changes:
+#   - plain http:// requests are redirected to https://,
+#   - the wildcard certificate becomes the default for every HTTPS request,
+#   - (chapter 8, optional) the sablier plugin is loaded, for apps that sleep when idle. Traefik
+#     downloads it from its plugin catalog when it starts. k3s already sets allowEmptyServices,
+#     which keeps a route working while its app has no pods.
+# Traefik picks up a renewed certificate on its own.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    ports:
+      web:
+        http:
+          redirections:
+            entryPoint:
+              to: websecure
+              scheme: https
+              permanent: true
+    tlsStore:
+      default:
+        defaultCertificate:
+          secretName: wildcard-tls
+    experimental:
+      plugins:
+        sablier:
+          moduleName: github.com/sablierapp/sablier-traefik-plugin
+          version: v1.4.0

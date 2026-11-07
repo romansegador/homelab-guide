@@ -1,0 +1,66 @@
+# Sablier's server. Traefik reaches it at http://sablier.sablier:10000. It keeps sessions in memory:
+# after a restart it scales every opted-in app to zero, and the next request wakes it again.
+# The image would run as root by default; it works as an unprivileged user with a read-only disk.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sablier
+  namespace: sablier
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sablier
+  template:
+    metadata:
+      labels:
+        app: sablier
+    spec:
+      serviceAccountName: sablier
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: sablier
+          image: sablierapp/sablier:1.19.1
+          args:
+            - start
+            - --provider.name=kubernetes
+            - --sessions.default-duration=30m
+            - --strategy.dynamic.default-theme=ghost
+          ports:
+            - name: http
+              containerPort: 10000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sablier
+  namespace: sablier
+spec:
+  selector:
+    app: sablier
+  ports:
+    - name: http
+      port: 10000
+      targetPort: http

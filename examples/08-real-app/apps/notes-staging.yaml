@@ -23,12 +23,19 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: notes-staging
+  # If staging sleeps when idle (optional), Sablier sets the Deployments' replica count, not git.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
       - ServerSideApply=true
+      - RespectIgnoreDifferences=true
     retry:
       limit: 10
       backoff:

@@ -692,3 +692,46 @@ estático del capítulo 6, la construcción de arm64 no puede reutilizar la de a
 emula arm64 para esa parte. Es más lento, unos minutos, pero no necesita configuración extra. Si
 solo usas máquinas amd64, quita `linux/arm64` del workflow para reducir a la mitad el tiempo de
 construcción.
+
+### ¿Por qué Sablier, para dormir staging?
+Hace una sola cosa: reducir a cero un grupo de Deployments tras un rato sin peticiones, y
+levantarlo con la siguiente, con una página de espera mientras tanto. Funciona como un solo pod
+pequeño, y se conecta a Traefik, que el clúster ya tiene. Alternativas:
+- **El complemento HTTP de KEDA** también escala según el tráfico HTTP, y puede ejecutar varias
+  copias cuando hay carga. Es más pesado: un operador, un interceptor por el que pasa cada petición,
+  y un escalador. Merece la pena si también necesitas autoescalado.
+- **Knative** convierte las aplicaciones en servicios serverless que bajan a cero. Sustituye tu
+  forma de desplegar aplicaciones, mucho más de lo que esto necesita.
+- **Un horario** (kube-downscaler, o un CronJob) reduce staging por la noche y lo levanta por la
+  mañana. Más simple, pero no despierta bajo demanda: una visita de noche no encuentra nada.
+- **A mano**: pon las réplicas a 0 en git cuando termines. Sin componentes nuevos, pero tienes que
+  acordarte, y volver a despertarlo.
+
+### ¿Por qué solo staging, y no prod?
+Una aplicación dormida tarda unos 15 segundos en responder a la primera visita. Está bien para algo
+que solo pruebas tú, no para algo de lo que dependes. Prod además recibe peticiones que no haces
+tú: comprobaciones de salud, otras aplicaciones, un móvil que sincroniza.
+
+### ¿Por qué la base de datos sigue despierta?
+Sablier también puede dormir una base de datos de CloudNativePG (lo llama hibernación). Despertarla
+significa volver a conectar su disco y arrancar Postgres, lo que tarda más que arrancar la
+aplicación. Un Postgres sin uso gasta poca memoria y casi nada de CPU, así que el ahorro es pequeño
+para la espera extra. En una máquina muy pequeña, podrías añadir también la base de datos al grupo.
+
+### ¿Por qué Sablier necesita leer los clústeres de bases de datos?
+Como el operador CloudNativePG está instalado, Sablier 1.19.1 lista sus clústeres cada vez que
+refresca sus grupos. Sin permiso para listarlos, cada refresco falla, para todos los grupos, y
+Sablier registra el error cada pocos segundos. El acceso de lectura basta para evitarlo. Sin
+`patch`, sigue sin poder dormir una base de datos.
+
+### ¿Por qué decirle a ArgoCD que ignore el número de réplicas?
+Sablier cambia el número de réplicas, y ArgoCD devuelve el clúster a lo que dice git. Ganarían por
+turnos, y staging nunca seguiría dormido. Así que, con el modo dormir activado, el chart quita el
+número de réplicas, y la Application ignora ese campo (`ignoreDifferences` con
+`RespectIgnoreDifferences`). Todo lo demás de los Deployments sigue a git, incluidos los tags de
+imagen que cambia Image Updater.
+
+### ¿Por qué archivos simples para Sablier, y no su chart de Helm?
+Cuando se escribió esto, el chart de Sablier aún instalaba una versión más antigua (1.16) que la
+última publicada (1.19). Los archivos simples fijan la versión exacta, y son cortos: una cuenta, sus
+permisos, un Deployment y un Service.

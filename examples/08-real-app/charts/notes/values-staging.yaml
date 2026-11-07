@@ -3,6 +3,10 @@
 # (to the first sha- tag CI publishes); after that, leave them to Image Updater.
 host: notes-staging.lab.home.example.com
 
+# Optional: sleep after 30 minutes without visits (see "Sleep when idle" in chapter 8).
+sleep:
+  enabled: false
+
 api:
   image:
     tag: <YOUR_FIRST_SHA_TAG>
