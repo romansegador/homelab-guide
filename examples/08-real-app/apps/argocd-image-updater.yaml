@@ -1,0 +1,29 @@
+# Argo CD Image Updater: watches the registry and, when a new image matching a rule appears, commits
+# the new tag to your config repository. ArgoCD then deploys that commit like any other.
+# The rules live in manifests/image-updates/.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-image-updater
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argocd-image-updater
+    targetRevision: 1.4.0
+    helm:
+      valuesObject:
+        config:
+          # The author of the commits it pushes to your config repository.
+          git.user: argocd-image-updater
+          git.email: argocd-image-updater@lab-1.home.example.com
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

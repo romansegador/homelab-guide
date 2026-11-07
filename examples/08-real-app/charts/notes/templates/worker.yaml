@@ -1,0 +1,40 @@
+# The worker: the API's image with another command. It has no port and no Service: it only talks to
+# the database, which is also its queue.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "notes.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+        {{- include "notes.labels" . | nindent 8 }}
+    spec:
+      imagePullSecrets:
+        - name: {{ .Values.imagePullSecret.name }}
+      securityContext:
+        {{- include "notes.podSecurity" . | nindent 8 }}
+      containers:
+        - name: worker
+          image: {{ .Values.api.image.repository }}:{{ required "api.image.tag is required" .Values.api.image.tag }}
+          command: ["python", "-m", "notes.worker"]
+          env:
+            {{- include "notes.databaseEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          securityContext:
+            {{- include "notes.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,46 @@
+# Defaults shared by every environment. Each environment overrides what differs in its own file
+# (values-staging.yaml, values-prod.yaml), and ArgoCD reads both.
+
+# The app's address. Covered by the wildcard DNS record and certificate from chapter 5.
+host: notes.lab.home.example.com
+
+# The images are private, so the cluster pulls them with a GitHub token from the secrets manager.
+imagePullSecret:
+  name: registry-credentials
+  username: <YOUR_GITHUB_USER>
+  secretKey: ghcr-pull-token
+
+api:
+  image:
+    repository: ghcr.io/<YOUR_GITHUB_USER>/notes-api
+    tag: ""
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+    limits: {memory: 256Mi}
+
+# The worker runs the API's image with another command, so it has no image of its own.
+worker:
+  replicas: 1
+  resources:
+    requests: {cpu: 10m, memory: 48Mi}
+    limits: {memory: 128Mi}
+
+web:
+  image:
+    repository: ghcr.io/<YOUR_GITHUB_USER>/notes-web
+    tag: ""
+  resources:
+    requests: {cpu: 10m, memory: 16Mi}
+    limits: {memory: 64Mi}
+
+database:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.6-standard-trixie
+  size: 2Gi
+  # Off-site backups to the bucket from chapter 7. Each database gets its own folder there, named
+  # after the release (notes-prod/).
+  backups:
+    enabled: false
+    bucket: <YOUR_BACKUP_BUCKET>
+    endpointURL: https://<YOUR_CLOUDFLARE_ACCOUNT_ID>.r2.cloudflarestorage.com
+    retention: 14d

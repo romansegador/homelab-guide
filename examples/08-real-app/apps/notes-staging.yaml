@@ -1,0 +1,37 @@
+# Staging: the notes chart (charts/notes) with values-staging.yaml. It follows every build of the
+# app's main branch: Image Updater commits each new image tag to values-staging.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: notes-staging
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # Compare on the server, with the database operator's defaults filled in (as in chapter 7).
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
+spec:
+  project: default
+  source:
+    repoURL: <YOUR_CONFIG_REPO_URL>
+    targetRevision: main
+    path: charts/notes
+    helm:
+      releaseName: notes-staging
+      valueFiles:
+        - values-staging.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: notes-staging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

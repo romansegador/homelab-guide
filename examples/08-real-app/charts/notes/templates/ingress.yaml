@@ -1,0 +1,29 @@
+# One address for the whole app: /api/… goes to the API, everything else to the web page. The page
+# and the API share an origin, so the browser needs no cross-origin setup.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: notes
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "notes.labels" . | nindent 4 }}
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: {{ .Values.host }}
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  name: http
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  name: http

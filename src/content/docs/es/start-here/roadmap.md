@@ -21,7 +21,7 @@ actualiza a medida que avanza la construcción.
 | 5 | **HTTPS y DNS privado** | cert-manager con DNS-01, un certificado comodín, ingress y registros DNS internos | ✅ Probado |
 | 6 | **Tu primera aplicación** | Esta misma guía: compilada por CI, publicada como imagen, desplegada por ArgoCD y servida por HTTPS | ✅ Probado |
 | 7 | **Una base de datos** | Postgres gestionado por un operador, con copias de seguridad fuera de la máquina | ✅ Probado |
-| 8 | **Una aplicación real** | Una aplicación de varios servicios (web, API, proceso en segundo plano, base de datos) con actualización automática de imágenes | Previsto |
+| 8 | **Una aplicación real** | Una aplicación de varios servicios (web, API, proceso en segundo plano, base de datos) con actualización automática de imágenes | ✅ Probado |
 | 9 | **Publicar** | Exponer una aplicación a internet a través de un túnel, con una política de acceso delante | Previsto |
 | 10 | **Operación diaria** | Actualizaciones, copias y restauraciones, monitorización básica y reconstrucción completa desde cero | Previsto |
 

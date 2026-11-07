@@ -1,0 +1,64 @@
+# The API: answers /api/… for the web page, and saves new notes for the worker.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "notes.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+        {{- include "notes.labels" . | nindent 8 }}
+    spec:
+      imagePullSecrets:
+        - name: {{ .Values.imagePullSecret.name }}
+      securityContext:
+        {{- include "notes.podSecurity" . | nindent 8 }}
+      containers:
+        - name: api
+          image: {{ .Values.api.image.repository }}:{{ required "api.image.tag is required" .Values.api.image.tag }}
+          env:
+            {{- include "notes.databaseEnv" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          securityContext:
+            {{- include "notes.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "notes.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
