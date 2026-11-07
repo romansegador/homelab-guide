@@ -55,3 +55,4 @@ Pasa a tu agente una de esas URLs y pídele que te guíe por un capítulo.
 | 6 · Tu primera aplicación | `first-app` |
 | 7 · Una base de datos | `database` |
 | 8 · Una aplicación real | `real-app` |
+| 9 · Salir a internet | `going-public` |

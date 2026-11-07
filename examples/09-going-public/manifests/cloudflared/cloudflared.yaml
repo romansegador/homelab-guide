@@ -1,0 +1,59 @@
+# Two connectors for the same tunnel, so a restart or an update never takes the public apps offline
+# (a tunnel allows up to 25 on the free plan). Routes come from Cloudflare (infra/cloudflare), so
+# the only setting here is the token.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: cloudflared
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:2026.10.7
+          args:
+            - tunnel
+            - --no-autoupdate
+            - --metrics
+            - 0.0.0.0:2000
+            - run
+          envFrom:
+            - secretRef:
+                name: tunnel-token
+          ports:
+            - name: metrics
+              containerPort: 2000
+          # /ready answers 200 once this connector holds a connection to Cloudflare.
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

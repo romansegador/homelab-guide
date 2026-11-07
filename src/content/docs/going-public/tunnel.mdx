@@ -1,0 +1,238 @@
+---
+title: Going public
+description: Publish one app on the internet through a Cloudflare Tunnel, with Cloudflare Access asking for a login before any request reaches your network. All of it in OpenTofu, and all of it on Cloudflare's free plan.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+Everything so far is reachable on your network only. This chapter publishes one app, the notes
+app's prod, at a public address, without opening any port on your router. At the end you'll have:
+- a **Cloudflare Tunnel**: a small program in your cluster, **cloudflared**, that connects *out* to
+  Cloudflare and brings public requests in,
+- **Cloudflare Access** in front of the app: a login page, so only the people you list can reach
+  it,
+- the tunnel, the public address and the login rule written in **OpenTofu**, like the machine in
+  chapter 1,
+- `https://notes.example.com` working from anywhere, and asking for a login first.
+
+All of it fits **Cloudflare's free plan**, far under its limits. Each step says which limit applies.
+
+<Aside type="tip" title="Do it with an AI agent">
+This chapter has an agent skill, `going-public`. See [Use with an AI agent](/start-here/agents/).
+</Aside>
+
+**Tested with:** cloudflared 2026.10.7, OpenTofu 1.13 with the Cloudflare provider 5.28, on k3s
+v1.37.2+k3s1 with ArgoCD 3.6.1 and cert-manager. Cloudflare Zero Trust free plan.
+
+## A few ideas first
+
+### A tunnel instead of an open port
+The usual way to publish a home server is to forward a port on your router to it. Then your home
+IP address is public, and anyone on the internet can knock on that port. A tunnel turns this
+around: cloudflared, inside your cluster, opens an outgoing connection to Cloudflare and keeps it
+open. Public requests arrive at Cloudflare, and travel back down that connection. Your router opens
+nothing, and your IP address stays private.
+
+```text
+someone on the internet
+        │ https://notes.example.com
+        ▼
+Cloudflare ── Access: logged in, and on the list? ── no ──▶ login page
+        │ yes
+        ▼  (the tunnel: an outgoing connection cloudflared keeps open)
+cloudflared ──▶ Traefik (HTTPS, checks the certificate) ──▶ the notes app
+└──────────────────────────── your cluster ────────────────────────────┘
+```
+
+### A login in front of the app
+The notes app has no login of its own, and many homelab apps have a weak one. **Cloudflare Access**
+stands in front: before a request goes down the tunnel, Cloudflare asks who's there. Here the login
+is a **one-time PIN**: you type your email address, and Cloudflare emails you a code. Only the
+addresses you list get one. Requests from anyone else never reach your network.
+
+### Through Traefik, like every other app
+The tunnel sends every public address to Traefik, which routes it by name like any other app. So
+publishing an app is two things: the address and its login rule in OpenTofu, and an Ingress for the
+public name in the app's chart. cloudflared itself never changes, and it gets its list of
+addresses from Cloudflare.
+
+Between cloudflared and Traefik, the request uses HTTPS too, with a Let's Encrypt certificate for
+the public name, from the same issuer as chapter 5. cloudflared checks it, so even the hop inside
+your cluster is encrypted and verified.
+
+### The free plan
+| What you create | Free limit | This chapter |
+|---|---|---|
+| Tunnels | 1,000 per account | 1 |
+| Public addresses on a tunnel | no fixed number | 1 |
+| Access applications | 500 | 1 |
+| Access policies | 500 | 1 |
+| People who log in through Access | 50 | 1 (you) |
+| DNS records | free | 1 |
+
+Each person who logs in takes one of the 50 seats, whatever number of apps they use. The
+certificate comes from Let's Encrypt, which is free and not part of Cloudflare.
+
+The reasoning behind each choice is in the [FAQ](/start-here/faq/#chapter-9--going-public).
+
+## Before you start
+
+- [ ] Chapter 8 done: the notes app runs in prod, at `notes.lab.home.example.com`.
+- [ ] Your domain's DNS is on Cloudflare, as in chapter 5.
+- [ ] Your OpenTofu setup from chapter 1: the state bucket, its key, and the state passphrase.
+
+## Set up Cloudflare
+
+<Steps>
+
+1. **Create your Zero Trust organisation.** In the Cloudflare dashboard, open **Zero Trust**. The
+   first time, it asks for a **team name**, which becomes your login page's address
+   (`<team>.cloudflareaccess.com`), and a plan: choose **Free**. Cloudflare may ask for a payment
+   method, as R2 did in chapter 1. The free plan isn't charged.
+
+   Then check the login methods (**Settings → Authentication**, or **Integrations → Identity
+   providers** in newer dashboards): **One-time PIN** is listed. If it isn't, add it. It needs no
+   setup.
+
+2. **Note two ids.** Neither is secret. On your domain's **Overview** page in the dashboard, the
+   right-hand column shows the **Zone ID** and the **Account ID**.
+
+3. **Create an API token for OpenTofu.** **My Profile → API Tokens → Create Token → Create Custom
+   Token**, with these permissions, all available on the free plan:
+   - Account · **Cloudflare Tunnel** · Edit
+   - Account · **Access: Apps and Policies** · Edit
+   - Zone · **DNS** · Edit, with **Zone Resources** set to *Specific zone* and your domain
+
+   Save it in your password manager. OpenTofu asks for it each time it runs, and never stores it.
+
+</Steps>
+
+## Create the tunnel with OpenTofu
+
+<Steps>
+
+1. **Add the files to your config repository.** Copy
+   [`examples/09-going-public`](https://github.com/romansegador/homelab-guide/tree/main/examples/09-going-public)
+   into your config repository, merging its folders with yours:
+   - `infra/cloudflare/`: the tunnel, its public addresses, their DNS records and Access rules.
+   - `apps/cloudflared.yaml` and `manifests/cloudflared/`: cloudflared, in the cluster.
+
+   Then, in `infra/cloudflare/`:
+   - Copy your `backend.hcl` from `infra/proxmox/`. Both use the same bucket, with a different file
+     for each state (`cloudflare/terraform.tfstate` here).
+   - Copy `terraform.tfvars.example` to `terraform.tfvars`, and fill in your account id, zone id,
+     domain, and your email address in `allow_emails`. `public_apps` lists the apps to publish, by
+     name: `notes` becomes `notes.example.com`.
+
+   In `apps/cloudflared.yaml`, replace `<YOUR_CONFIG_REPO_URL>`, as before. Don't push yet:
+   cloudflared needs the tunnel's token, which the next steps create.
+
+2. **Plan it.** OpenTofu asks for four values, with hidden input: the API token, the state
+   bucket's two keys, and the state passphrase:
+
+   ```sh title="Laptop"
+   cd infra/cloudflare
+   source ./load-secrets.sh
+   tofu init -backend-config=backend.hcl
+   tofu plan
+   ```
+
+   The plan ends with `Plan: 5 to add, 0 to change, 0 to destroy.`:
+   - the tunnel, `lab-1`,
+   - its configuration: `notes.example.com` goes to Traefik, anything else gets a 404,
+   - a DNS record for `notes.example.com`, pointing at the tunnel,
+   - an Access policy that allows your email address,
+   - an Access application for `notes.example.com` that uses that policy.
+
+   Nothing else in your Cloudflare account changes. OpenTofu also warns that it can't delete the
+   tunnel's configuration: that's a limit of the provider, and the configuration goes away with the
+   tunnel.
+
+3. **Apply it,** then copy the tunnel's token to your clipboard:
+
+   ```sh title="Laptop"
+   tofu apply
+   tofu output -raw tunnel_token | pbcopy
+   ```
+
+   In Bitwarden Secrets Manager, add it to the cluster's project (`lab-1`) as
+   **`cloudflare-tunnel-token`**. Anyone with this token can connect their own cloudflared to your
+   tunnel, so treat it like a password.
+
+   Commit `infra/cloudflare/`, including `.terraform.lock.hcl`, which pins the provider's exact
+   build. The token and the state never reach git: the state lives in your bucket, encrypted.
+
+</Steps>
+
+## Publish the app
+
+<Steps>
+
+1. **Give the app its public name.** In `charts/notes/values-prod.yaml`, set:
+
+   ```yaml
+   publicHost: notes.example.com
+   ```
+
+   The chart then adds a certificate for that name, and an Ingress for it next to the one on your
+   network.
+
+2. **Commit and push** the chart change, `apps/cloudflared.yaml` and `manifests/cloudflared/`. After
+   a minute or two:
+
+   ```sh title="Laptop"
+   kubectl -n cloudflared get pods
+   kubectl -n cloudflared logs deployment/cloudflared | grep -E "Registered tunnel connection|Updated to new configuration"
+   kubectl -n notes-prod get certificate notes-public
+   ```
+
+   Two `cloudflared` pods are `Running`, and the log shows connections registered with Cloudflare
+   and the configuration it received, with `notes.example.com` in it. The certificate is `Ready`:
+   cert-manager got it from Let's Encrypt, like chapter 5's wildcard.
+
+</Steps>
+
+## Check it
+
+**It asks for a login.** On a phone with Wi-Fi turned off, open `https://notes.example.com`.
+Cloudflare's login page appears. Enter your email address, then the code Cloudflare emails you.
+The notes app opens, with prod's notes.
+
+**Nobody else gets in.** Log out (or use a private window) and try another email address: the
+code never arrives. Cloudflare doesn't say which addresses are allowed, so it shows the same
+"check your email" page either way. The request never reached your cluster.
+
+**The tunnel is healthy.** In the Zero Trust dashboard, the tunnels page (under **Networks**)
+shows `lab-1` as **Healthy**, with two connectors. Your router has no new port forward: the only
+way in is through Cloudflare.
+
+**The hop inside the cluster is verified.** From your laptop, ask Traefik for the public name
+directly, the way cloudflared does:
+
+```sh title="Laptop"
+curl -sS -o /dev/null -w '%{http_code} %{ssl_verify_result}\n' --resolve notes.example.com:443:192.168.10.50 https://notes.example.com/
+```
+
+It prints `200 0`: Traefik answered, with a certificate valid for the name. Use your machine's IP
+address in place of `192.168.10.50`.
+
+## Publish another app later
+
+1. Add it to `public_apps` in `infra/cloudflare/terraform.tfvars`, with who may log in. Check the
+   seats: each new person is one of the 50.
+2. `tofu plan`, then `tofu apply`: three new resources (a DNS record, a policy, an application),
+   and the tunnel's configuration gains a line.
+3. Give the app an Ingress and a certificate for its public name, like `publicHost` in the notes
+   chart.
+
+cloudflared doesn't change: it picks up the new address from Cloudflare.
+
+## Before you move on
+
+- [ ] `https://notes.example.com` asks for a login, and shows the app after it.
+- [ ] Another email address can't get in.
+- [ ] In Bitwarden Secrets Manager: `cloudflare-tunnel-token`. In your password manager: the
+      Cloudflare API token for OpenTofu.
+- [ ] `infra/cloudflare/` committed, with `.terraform.lock.hcl`, without `terraform.tfstate`.
+
+Next: day 2. Upgrades, backups and restores, monitoring basics, and a full rebuild from zero.

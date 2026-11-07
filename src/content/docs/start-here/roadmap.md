@@ -17,7 +17,7 @@ build progresses.
 | 6 | **Your first app** | This guide itself: built by CI, published as an image, deployed by ArgoCD, served over HTTPS | ✅ Tested |
 | 7 | **A database** | Postgres managed by an operator, with off-site backups | ✅ Tested |
 | 8 | **A real app** | A multi-service app (web, API, worker, database) with automated image updates | ✅ Tested |
-| 9 | **Going public** | Exposing one app to the internet through a tunnel, with an access policy in front | Planned |
+| 9 | **Going public** | Exposing one app to the internet through a tunnel, with an access policy in front | ✅ Tested |
 | 10 | **Day 2** | Upgrades, backups and restores, monitoring basics, and a full rebuild from zero | Planned |
 
 ## Extras under consideration

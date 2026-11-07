@@ -735,3 +735,83 @@ imagen que cambia Image Updater.
 Cuando se escribió esto, el chart de Sablier aún instalaba una versión más antigua (1.16) que la
 última publicada (1.19). Los archivos simples fijan la versión exacta, y son cortos: una cuenta, sus
 permisos, un Deployment y un Service.
+
+## Capítulo 9 · Salir a internet
+
+### ¿Por qué un túnel, y no una redirección de puertos en el router?
+Una redirección de puertos hace pública tu IP de casa, y deja abierto un puerto que cualquiera en
+internet puede sondear, incluso a través de cada fallo que tengan tus aplicaciones. Muchas
+conexiones de casa tampoco pueden redirigir puertos (CG-NAT), o cambian de IP a menudo. Un túnel
+solo necesita una conexión de salida, mantiene tu dirección privada, y deja que Cloudflare filtre el
+tráfico antes de que te llegue. El precio es que Cloudflare queda en medio (ver más abajo).
+
+### ¿Por qué Cloudflare Tunnel?
+El DNS de tu dominio ya está en Cloudflare (capítulo 5), el túnel y Access son gratuitos, y el mismo
+panel y la misma API gestionan los dos. Alternativas:
+- **Tailscale Funnel** publica un servicio a través de Tailscale. Es simple si ya usas Tailscale,
+  pero con menos controles de acceso, y con direcciones bajo el dominio de Tailscale.
+- **ngrok** y servicios parecidos funcionan igual. Sus planes gratuitos limitan los dominios
+  propios y el tráfico.
+- **Un servidor pequeño en la nube** (un VPS) con un proxy inverso, y una VPN (WireGuard) hasta
+  casa, o **túneles autoalojados** como Pangolin o frp en ese servidor. Lo controlas todo, y nadie
+  más ve tu tráfico, pero pagas el servidor, y lo proteges y actualizas tú.
+
+### ¿Cloudflare ve mi tráfico?
+Sí. Cloudflare termina la conexión HTTPS del navegador en su red, y después envía la petición por el
+túnel, así que puede leerla. Así es como Access comprueba el inicio de sesión, y como puede filtrar
+ataques. Para una aplicación de homelab suele ser un intercambio aceptable. Para datos que no
+quieres que vea ningún tercero, usa una VPN, como WireGuard o Tailscale, donde el tráfico va cifrado
+de extremo a extremo y solo tú puedes llegar a la aplicación.
+
+### ¿Por qué poner Cloudflare Access delante, y no confiar en el inicio de sesión de la aplicación?
+La aplicación de notas no tiene, y el inicio de sesión de muchas aplicaciones no se ha probado
+contra todo internet. Con Access, una petición de alguien que no está en tu lista se queda en
+Cloudflare: nunca llega a tu clúster, así que esa persona no puede llegar a un fallo de la
+aplicación. Mantén también el inicio de sesión propio de la aplicación cuando lo tenga: dos
+cerraduras son mejor que una. Quita Access solo para algo pensado para todo el mundo, como una web
+pública.
+
+### ¿Por qué un código de un solo uso por email?
+No necesita configuración: ni cuenta en otro servicio, ni aplicación que registrar. Cualquiera con
+un email puede iniciar sesión, si has permitido esa dirección. Access también puede usar GitHub,
+Google, Microsoft y otros como proveedores de identidad, todos en el plan gratuito. Son más cómodos
+para un uso frecuente, y cada uno lleva unos minutos de configuración.
+
+### ¿Por qué OpenTofu para Cloudflare, y no el panel?
+El túnel, sus direcciones, los registros DNS y quién puede iniciar sesión son parte de tu
+infraestructura, como la máquina del capítulo 1. En OpenTofu, se revisan en un commit, `tofu plan`
+muestra exactamente qué va a cambiar antes de que cambie nada, y puedes reconstruirlos. Hacer clic
+en el panel es más rápido la primera vez, pero nada registra lo que hiciste. cloudflared también
+admite un archivo de configuración con las direcciones, que las mantendría en tu repositorio de
+configuración, pero las reglas de Access seguirían siendo clics.
+
+### ¿Por qué el túnel va a Traefik, y no directamente a la aplicación?
+Así una aplicación pública es un Ingress normal, como cualquier aplicación de tu red, con la misma
+gestión de certificados y los mismos middlewares (la página opcional de dormir del capítulo 8 sigue
+funcionando). Apuntar el túnel al Service de cada aplicación se ahorra un salto, pero cada
+aplicación nueva significa un cambio en el túnel, y se pierden las funciones de Traefik.
+
+### ¿Por qué HTTPS entre cloudflared y Traefik, comprobando el certificado?
+Dentro del clúster el salto es corto, pero comprobarlo cuesta poco: cert-manager ya obtiene
+certificados de Let's Encrypt, y cloudflared lo compara con el nombre (`origin_server_name`). El
+atajo habitual es desactivar la verificación (`noTLSVerify`), que funciona con cualquier
+certificado, y también aceptaría uno falso.
+
+### ¿Por qué dos pods de cloudflared?
+Un túnel puede tener varios conectores, y Cloudflare reparte las peticiones entre ellos. Con dos,
+una actualización o un reinicio de uno nunca deja la aplicación pública sin servicio. El plan
+gratuito permite hasta 25 por túnel.
+
+### ¿Por qué el token del túnel está en el gestor de secretos, y no solo en el clúster?
+Como cualquier otro secreto de esta guía: si reconstruyes el clúster, ArgoCD y External Secrets lo
+reponen todo, el token incluido, sin que copies nada a mano. Cualquiera con el token puede ejecutar
+un conector para tu túnel, así que es un secreto como una contraseña. Para sustituirlo, ejecuta
+`tofu apply -replace=cloudflare_zero_trust_tunnel_cloudflared.lab1`: OpenTofu crea un túnel nuevo y
+apunta los registros DNS a él. Después guarda el nuevo token en el gestor de secretos.
+
+### ¿Qué sigue siendo gratis, y qué costaría dinero?
+Todo lo de este capítulo está en el plan gratuito, muy por debajo de sus límites (ver la tabla de la
+página). Lo que costaría dinero: más de 50 personas iniciando sesión con Access, y funciones que esta
+guía no usa, como guardar los registros de Access más tiempo, reglas extra de limitación de
+peticiones, o balanceo de carga. Si añades aplicaciones, revisa primero las plazas: cada persona que
+inicia sesión cuenta una vez, use las aplicaciones que use.

@@ -1,0 +1,23 @@
+# cloudflared: the lab-1 tunnel's connector. It connects OUT to Cloudflare and brings public
+# requests (already through Cloudflare Access) to Traefik. The tunnel, its hostnames, DNS records
+# and Access policies are OpenTofu: infra/cloudflare. Free plan.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudflared
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: <YOUR_CONFIG_REPO_URL>
+    targetRevision: main
+    path: manifests/cloudflared
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cloudflared
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

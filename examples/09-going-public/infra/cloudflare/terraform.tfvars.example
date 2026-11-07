@@ -1,0 +1,14 @@
+# Copy to terraform.tfvars and fill in. Not secret: the API token, the state bucket keys and the
+# passphrase come from load-secrets.sh.
+account_id = "<YOUR_CLOUDFLARE_ACCOUNT_ID>"
+zone_id    = "<YOUR_ZONE_ID>"
+domain     = "example.com"
+
+# Free plan (2026-11): 1,000 tunnels, 500 Access apps, 500 reusable policies, 50 Access seats.
+# Each entry = 1 DNS record + 1 Access app + 1 policy. Each person who logs in = 1 seat, shared by
+# every app.
+public_apps = {
+  "notes" = {
+    allow_emails = ["<YOUR_EMAIL>"]
+  }
+}
