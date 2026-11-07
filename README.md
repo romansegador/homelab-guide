@@ -17,7 +17,7 @@ before it's published.
 The structure is tool-agnostic, so other paths (for example Docker Swarm) can be added for the same steps.
 
 - **Languages:** English (source), Español (AI-assisted). More to come.
-- **Status:** chapters 0 to 7 tested on real hardware. See the roadmap page in the site.
+- **Status:** chapters 0 to 8 tested on real hardware. See the roadmap page in the site.
 
 ## Run locally
 

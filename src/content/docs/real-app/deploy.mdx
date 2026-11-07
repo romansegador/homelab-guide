@@ -191,8 +191,10 @@ git log -3 --format='%h %an %s' -- charts/notes/values-staging.yaml
 ```
 
 Run that in your config repository. The newest commit is Image Updater's, and
-`values-staging.yaml` has the new tag. A minute later ArgoCD deploys it: staging shows the new
-title and the new version in its footer. Prod hasn't changed.
+`values-staging.yaml` has the new tag. Image Updater also writes a `repository:` line next to each
+tag, and may drop blank lines: that's expected. ArgoCD checks your config repository every three
+minutes, so within three minutes it deploys the commit: staging shows the new title and the new
+version in its footer. Prod hasn't changed.
 
 Image Updater pushes to `main` from now on, so run `git pull` in your config repository before
 you change anything in it.
