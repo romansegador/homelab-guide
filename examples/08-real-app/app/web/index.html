@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Notes</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+    form { display: flex; gap: .5rem; }
+    input { flex: 1; padding: .5rem; }
+    li { margin: .4rem 0; }
+    .pending { color: #a15c00; }
+    .done { color: #1a7f37; }
+    footer { margin-top: 2rem; color: #666; font-size: .85rem; }
+  </style>
+</head>
+<body>
+  <h1>Notes</h1>
+  <form id="add">
+    <input id="body" maxlength="500" placeholder="Write a note" required>
+    <button>Add</button>
+  </form>
+  <ul id="notes"></ul>
+  <footer>API version: <span id="version">…</span></footer>
+  <script>
+    const list = document.getElementById("notes");
+
+    async function refresh() {
+      const notes = await (await fetch("/api/notes")).json();
+      list.replaceChildren(...notes.map(n => {
+        const li = document.createElement("li");
+        const state = n.status === "done" ? `done, ${n.words} words` : "pending";
+        li.innerHTML = `<span class="${n.status}">[${state}]</span> `;
+        li.append(n.body);
+        return li;
+      }));
+    }
+
+    document.getElementById("add").addEventListener("submit", async e => {
+      e.preventDefault();
+      const input = document.getElementById("body");
+      await fetch("/api/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body: input.value }),
+      });
+      input.value = "";
+      refresh();
+    });
+
+    fetch("/api/health").then(r => r.json()).then(h => {
+      document.getElementById("version").textContent = h.version;
+    });
+    refresh();
+    setInterval(refresh, 2000);
+  </script>
+</body>
+</html>

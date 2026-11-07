@@ -1,0 +1,99 @@
+# The environment's own Postgres, run by the operator from chapter 7. The operator creates the
+# database "app", its user "app", and the Secret <release>-app with the connection string the API
+# and the worker read.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "notes.labels" . | nindent 4 }}
+spec:
+  instances: {{ .Values.database.instances }}
+  imageName: {{ .Values.database.imageName }}
+  storage:
+    size: {{ .Values.database.size }}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  bootstrap:
+    initdb:
+      database: app
+      owner: app
+  {{- if .Values.database.backups.enabled }}
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: {{ .Release.Name }}-offsite
+  {{- end }}
+{{- if .Values.database.backups.enabled }}
+---
+# Backups go to the chapter 7 bucket, in a folder named after this database.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: {{ .Release.Name }}-offsite
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "notes.labels" . | nindent 4 }}
+spec:
+  configuration:
+    destinationPath: s3://{{ .Values.database.backups.bucket }}/
+    endpointURL: {{ .Values.database.backups.endpointURL }}
+    s3Credentials:
+      accessKeyId:
+        name: backup-credentials
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: backup-credentials
+        key: ACCESS_SECRET_KEY
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+  retentionPolicy: {{ .Values.database.backups.retention | quote }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: {{ .Release.Name }}-nightly
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "notes.labels" . | nindent 4 }}
+spec:
+  schedule: "0 0 3 * * *"
+  immediate: true
+  backupOwnerReference: self
+  cluster:
+    name: {{ .Release.Name }}
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+---
+# The bucket's access key from chapter 7, copied from the secrets manager.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: backup-credentials
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "notes.labels" . | nindent 4 }}
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: bitwarden
+  target:
+    name: backup-credentials
+  data:
+    - secretKey: ACCESS_KEY_ID
+      remoteRef:
+        key: db-backup-access-key-id
+    - secretKey: ACCESS_SECRET_KEY
+      remoteRef:
+        key: db-backup-secret-access-key
+{{- end }}

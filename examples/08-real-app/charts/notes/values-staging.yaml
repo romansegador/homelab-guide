@@ -1,0 +1,11 @@
+# Staging: follows every build of main. Image Updater changes the two tags below, in a commit to
+# your config repository, each time CI publishes a new sha-<commit> image. Set them once by hand
+# (to the first sha- tag CI publishes); after that, leave them to Image Updater.
+host: notes-staging.lab.home.example.com
+
+api:
+  image:
+    tag: <YOUR_FIRST_SHA_TAG>
+web:
+  image:
+    tag: <YOUR_FIRST_SHA_TAG>

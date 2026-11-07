@@ -509,3 +509,132 @@ ArgoCD's `CreateNamespace=true` option creates a namespace if it's missing, but 
 a namespace it made that way. Declared as a file in the app's folder, the namespace is managed like
 everything else, so removing the app removes it too. The Helm-chart apps (cert-manager, the
 operator) keep the option: they stay installed.
+
+## Chapter 8 · A real app
+
+### Why a sample app, and not a well-known open-source one?
+An app you install from someone else's chart teaches you their chart. Here the point is the path
+from *your* code to two environments: your repository, your CI, your images, your chart. The sample
+is small enough to read in a few minutes, and has the parts most apps have: a page, an API, a
+background worker and a database. Swap in your own app once the path works.
+
+### Why a Helm chart now, after plain YAML in chapter 6?
+Chapter 6 had one app in one environment. Here the same ten resources run twice, with small
+differences, and a chart writes them once. **Kustomize** does this too, with a base and an overlay
+per environment, and it's built into `kubectl` and ArgoCD. It's a fine choice, especially when the
+environments differ only a little. Helm was picked for two reasons: the chart can switch whole
+parts on and off (the backups exist only in prod), and Image Updater's `helmvalues` target changes
+a tag in a values file cleanly. With Kustomize, Image Updater edits the `images:` list of an overlay
+instead, which works as well.
+
+### Why does the chart live in the config repository, not in the app repository?
+The config repository is the one place that says what runs in the cluster, and ArgoCD already reads
+it. With the chart there, a change to the app's deployment (more memory, a new setting) is a commit
+in the same place as the version change, reviewed the same way. Teams with many apps often keep the
+chart next to the code, and publish it as a package that the config repository then names by
+version. That's a good next step when other people install your app, but it adds a release
+step for every chart change.
+
+### Why Argo CD Image Updater?
+It's the ArgoCD project's own tool for this job: it watches a registry, and writes the new tag back
+to git, so ArgoCD stays the only thing that changes the cluster. Alternatives:
+- **CI pushes to the config repository.** The app's workflow commits the new tag itself after the
+  build. Simple, with no extra component, but every app repository then needs a key that can write
+  to your config repository, and CI decides what runs in the cluster.
+- **Renovate** (or Dependabot) opens pull requests for new image versions. Great for releases you
+  review, which is why it's an option for prod. For staging, a pull request for every commit is
+  noise.
+- **Flux's image automation** does the same as Image Updater, for Flux. This guide uses ArgoCD.
+- **Keel** and similar tools change the Deployment in the cluster directly. Then git no longer says
+  what runs.
+
+### Why does staging update itself, but prod needs a pull request?
+Staging exists to run every change soon after it's merged, so you see problems there first. Prod is
+what you depend on, and a release should be a decision: a pull request records who changed prod,
+when, and to which version, and a revert undoes it. If you want help with prod, Renovate can open
+those pull requests for every new version tag. You still review and merge them.
+
+### Why `sha-…` tags for staging, and version numbers for prod?
+A `sha-…` tag names the exact commit that was built, and CI publishes one for every push, so
+staging can follow `main` without anyone tagging versions. Prod runs versions you chose to release:
+`0.2.0` says more than a commit hash, and the tag in git marks the commit. Neither kind of tag ever
+moves, so a commit in the config repository always means one exact build. `latest` is never used,
+for the reasons in chapter 6.
+
+### Why the `newest-build` strategy?
+Commit hashes don't sort: `sha-0b1…` isn't older than `sha-f3a…`. So Image Updater can't pick
+the newest one from the name. `newest-build` reads each image's build date from the registry and
+takes the most recent one. `allowTags` limits it to the `sha-` tags, so a release tag never ends
+up in staging by accident. For prod, if you automate it later, `semver` picks the highest version.
+
+### Why does Image Updater commit to git, and not change the app in the cluster?
+Image Updater can also work without git: it then changes the Application's settings in the cluster
+directly (its `argocd` write-back method). That's simpler, with no key to manage, but the running
+version then exists only in the cluster: a rebuild from your config repository would go back to an
+old version. The `git` method keeps the promise of chapter 3: the config repository says what runs.
+
+### Why a deploy key, and not a token or a GitHub App?
+A **deploy key** can reach one repository and nothing else, and it can't log in to GitHub's
+website or API. That's the smallest access that lets Image Updater push. A **personal token** would
+reach every repository you can reach. A **GitHub App** is the most precise option, with short-lived
+tokens, but it takes more setup. It's worth it when many tools need access, or in an organisation.
+
+### Can't the deploy key push anything to `main`?
+Yes: it can write the whole repository, not just staging's values file. GitHub's free plan can't
+protect a branch in a private repository. Mitigations: the key lives only in the secrets manager,
+Image Updater writes only the files its rules name, and every commit it makes is visible in the
+history, under its own name. In an organisation, or with a paid plan, you can let the key push only
+to one branch, and have Image Updater push there.
+
+### Why private images, with a classic token?
+Your own app's code is usually private, and its images contain it. So the chart pulls with a
+token, and Image Updater reads the registry with the same one. GitHub's registry only accepts
+*classic* personal tokens for this, and `read:packages` is the smallest scope that can read
+images. A public app can skip the token: make the packages public, and remove `imagePullSecrets`
+and the `pullSecret` line.
+
+### Why use the database as the queue, and not Redis or RabbitMQ?
+A queue service is one more thing to run, secure, back up and upgrade. Postgres can already hand
+out jobs safely: `SELECT … FOR UPDATE SKIP LOCKED` gives each job to one worker, and a job that
+fails rolls back to `pending`. This works well up to many jobs per second, more than most homelab
+apps ever need. Reach for a real queue when you need very high throughput, scheduled retries with
+backoff, or several services that must get the same messages.
+
+### Why does the app create its own table when it starts?
+To keep the sample short. Real apps change their tables over time, and use a **migration** tool
+(Alembic for Python, for example) that applies each change once, in order. Run it as a Kubernetes
+**Job** before the new version starts: ArgoCD runs it first with a `PreSync` hook. The sample's
+`CREATE TABLE IF NOT EXISTS` is safe to run every time, and the advisory lock stops the API and the
+worker from running it at the same moment.
+
+### Why one database per environment?
+So staging can't damage prod's data, even by a bug in a new version, and so you can delete and
+recreate staging freely. A database per environment costs a little memory, and the operator makes
+each one with a few lines in the chart.
+
+### Why are backups only on in prod?
+Staging's data is test data you can lose. Backing it up would cost storage, and its WAL files would
+mix with prod's in the bucket. To protect staging too, set `database.backups.enabled: true` in
+`values-staging.yaml`: it gets its own folder in the bucket, `notes-staging/`.
+
+### Why does the worker share the API's image?
+They're the same Python code, with the same libraries and the same table, only started with a
+different command. One image means one build, and the API and the worker are always the same
+version. Split them when they grow apart, for example when the worker needs heavy libraries the
+API doesn't.
+
+### Why does the Ingress split `/api`, and not nginx?
+nginx could pass `/api` to the API itself. Doing it in the Ingress keeps the web image a plain
+static site, and the routing visible in one place, the chart. The page and the API share one
+address either way, so the browser needs no cross-origin settings.
+
+### Why Python and FastAPI?
+Python is the most widely read language, so the sample is easy to follow whatever you write
+yourself. FastAPI is a small, current way to write an API in Python. The chapter doesn't depend on
+either: any language works, if its image listens on a port and reads `DATABASE_URL`.
+
+### Why build for arm64 with emulation?
+The Python image installs its libraries for each platform, so unlike chapter 6's static site, the
+arm64 build can't just reuse the amd64 one. The CI machine emulates arm64 for that part. It's
+slower, a few minutes, but needs no extra setup. If you only run amd64 machines, remove
+`linux/arm64` from the workflow to halve the build time.

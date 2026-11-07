@@ -1,0 +1,36 @@
+# Staging follows the app's main branch: each push builds images tagged sha-<commit>, and Image
+# Updater commits the newest one to charts/notes/values-staging.yaml. Prod isn't listed here, so
+# its versions only change through your pull requests.
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: notes-staging
+  namespace: argocd
+spec:
+  commonUpdateSettings:
+    # The most recently built image, among the sha-<7 characters> tags only (never a release tag).
+    updateStrategy: newest-build
+    allowTags: "regexp:^sha-[0-9a-f]{7}$"
+    pullSecret: pullsecret:argocd/registry-credentials
+  writeBackConfig:
+    method: git:secret:argocd/git-creds
+    gitConfig:
+      repository: <YOUR_CONFIG_REPO_URL>
+      branch: main
+      # A path starting with / is from the root of the repository.
+      writeBackTarget: helmvalues:/charts/notes/values-staging.yaml
+  applicationRefs:
+    - namePattern: notes-staging
+      images:
+        - alias: api
+          imageName: ghcr.io/<YOUR_GITHUB_USER>/notes-api
+          manifestTargets:
+            helm:
+              name: api.image.repository
+              tag: api.image.tag
+        - alias: web
+          imageName: ghcr.io/<YOUR_GITHUB_USER>/notes-web
+          manifestTargets:
+            helm:
+              name: web.image.repository
+              tag: web.image.tag

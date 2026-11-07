@@ -1,0 +1,173 @@
+---
+title: Build the app
+description: A small app with a web page, an API, a background worker and a Postgres database, in its own private repository. GitHub Actions builds its images on every push, so each commit can be deployed.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+Chapter 6 deployed a static site with one container and no data. Most apps have more parts. This
+chapter runs a small app with all the usual ones, in two environments, and keeps the first one up to
+date by itself. At the end of the chapter you'll have:
+- an app with a **web page**, an **API**, a **worker** and a **database**, in its own private
+  repository,
+- **CI** that builds its images on every push to `main`, and a release image on every version tag,
+- two environments from one **Helm chart**: **staging**, which updates itself with every push, and
+  **prod**, which changes only when you merge a pull request,
+- **Argo CD Image Updater**, which commits each new staging image to your config repository.
+
+This page builds the app. [The next one](/real-app/deploy/) deploys it.
+
+<Aside type="tip" title="Do it with an AI agent">
+This chapter has an agent skill, `real-app`. See [Use with an AI agent](/start-here/agents/).
+</Aside>
+
+**Tested with:** Python 3.14, FastAPI 0.162, psycopg 3.3, nginx 1.30 (unprivileged), GitHub
+Actions, on k3s v1.37.2+k3s1 with ArgoCD 3.6.1, Argo CD Image Updater 1.4.0 and CloudNativePG 1.30.1.
+
+## A few ideas first
+
+### The app
+The app keeps notes. You write a note on the web page, and a worker counts its words in the
+background. It's small on purpose, but it has the parts a real app has:
+
+```text
+browser ──▶ https://notes.lab.home.example.com
+              │  /api/…          everything else
+              ▼                  ▼
+            api  ──────┐        web  (static page, nginx)
+                       ▼
+                  Postgres  ◀────── worker  (picks up new notes, counts their words)
+```
+
+- **web**: one HTML page, served by nginx, like chapter 6.
+- **api**: a Python API ([FastAPI](https://fastapi.tiangolo.com)). It lists notes, and saves new ones
+  as `pending`.
+- **worker**: a Python process with no web port. It takes `pending` notes one at a time, does the
+  work, and marks them `done`.
+- **Postgres**: one database per environment, run by the operator from chapter 7.
+
+The page and the API share one address. The Ingress sends `/api/…` to the API and everything else
+to the page, so the browser never makes a cross-site request.
+
+### The database is also the queue
+A worker needs a list of jobs to do. Here the list is the `notes` table itself: the worker asks for
+the oldest `pending` note with `FOR UPDATE SKIP LOCKED`, which makes Postgres hand each note to only
+one worker. Two workers can run side by side, and prod runs two. There's no separate queue service
+to run and back up.
+
+### Two images, three containers
+The API and the worker are the same Python code, so they share one image and run different commands.
+The web page has its own image. So CI builds two images:
+
+| Image | Runs as |
+|---|---|
+| `ghcr.io/<YOUR_GITHUB_USER>/notes-api` | the API (default command) and the worker (`python -m notes.worker`) |
+| `ghcr.io/<YOUR_GITHUB_USER>/notes-web` | the web page |
+
+### Two kinds of image tags
+- Every push to `main` publishes images tagged **`sha-<commit>`**, for example `sha-3f9c2a1`: the
+  first seven characters of the commit. Staging runs these.
+- A version tag in git, for example `v0.1.0`, publishes images tagged **`0.1.0`**. Prod runs these.
+
+Both kinds of tag point at one build forever. Chapter 6 explained why `latest` isn't used.
+
+The reasoning behind each choice is in the [FAQ](/start-here/faq/#chapter-8--a-real-app).
+
+## Before you start
+
+- [ ] Chapter 7 done: the database operator and its backup plugin are running, and the backup bucket's
+      key is in Bitwarden Secrets Manager.
+- [ ] A copy of the guide's repository (your fork from chapter 6 works), for the example files.
+
+## Create the app repository
+
+<Steps>
+
+1. **Create a private repository** on GitHub, named **`notes`**, with nothing in it: no README,
+   no license. The image names come from the repository's name. With another name, the
+   images are called `<name>-api` and `<name>-web`, and you'll change them in the next page's files.
+
+2. **Copy the app into it.** From the folder that holds your copy of the guide, copy
+   [`examples/08-real-app/app`](https://github.com/romansegador/homelab-guide/tree/main/examples/08-real-app/app)
+   into a new folder, including its hidden files (`.github`, `.gitignore`, `.dockerignore`), then
+   push it:
+
+   ```sh title="Laptop"
+   cp -R homelab-guide/examples/08-real-app/app notes
+   cd notes
+   git init -b main
+   git add .
+   git commit -m "Notes app"
+   git remote add origin git@github.com:<YOUR_GITHUB_USER>/notes.git
+   git push -u origin main
+   ```
+
+   The folder has:
+   - `notes/api.py`, `notes/worker.py` and `notes/db.py`: the API, the worker, and the table they
+     share.
+   - `Dockerfile`: the Python image for the API and the worker.
+   - `web/`: the page, its nginx settings, and its `Dockerfile`.
+   - `.github/workflows/images.yml`: builds both images.
+
+3. **Watch the first build.** The push starts the **Images** workflow, in the repository's
+   **Actions** tab. It builds the two images side by side for amd64 and arm64, which takes about
+   five minutes the first time. When it's green, your profile's **Packages** tab lists `notes-api`
+   and `notes-web`. Both are private, like the repository.
+
+   Note the tag it published: `sha-` and the first seven characters of the commit. Print it with:
+
+   ```sh title="Laptop"
+   echo "sha-$(git rev-parse --short=7 HEAD)"
+   ```
+
+   You'll need it on the next page.
+
+4. **Release the first version for prod.** Tag the same commit, and push the tag:
+
+   ```sh title="Laptop"
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+
+   The workflow runs again, and publishes both images tagged `0.1.0`.
+
+</Steps>
+
+## Give the cluster a registry token
+
+The images are private, so the cluster needs a token to pull them. Image Updater uses the same token
+to list their tags.
+
+<Steps>
+
+1. **Create the token.** On GitHub: **Settings → Developer settings → Personal access tokens →
+   Tokens (classic) → Generate new token (classic)**:
+   - **Note:** for example `lab-1 registry pull`.
+   - **Expiration:** your choice. When it expires, the cluster can't pull new images until you
+     replace it.
+   - **Scopes:** only **`read:packages`**.
+
+   It has to be a *classic* token: GitHub's registry doesn't accept fine-grained tokens.
+
+2. **Store it** in Bitwarden Secrets Manager, in the cluster's project (`lab-1`), as
+   **`ghcr-pull-token`**.
+
+</Steps>
+
+## Check it
+
+**Both builds are there.** In the repository's **Actions** tab, the **Images** workflow is green
+for the push to `main` and for `v0.1.0`. Each package's page lists two tags: `sha-…` and `0.1.0`.
+
+**A pull request builds without publishing.** Open a pull request with any small change. The
+workflow runs, and builds both images, but publishes nothing: the package pages don't change. Close
+the pull request, or merge it: merging publishes a new `sha-…` image, which the next page's staging
+picks up.
+
+## Before you move on
+
+- [ ] The `notes` repository exists, and its **Images** workflow is green.
+- [ ] Both packages have a `sha-…` tag and a `0.1.0` tag.
+- [ ] In Bitwarden Secrets Manager: `ghcr-pull-token`.
+
+Next: [deploy it](/real-app/deploy/), in staging and prod.

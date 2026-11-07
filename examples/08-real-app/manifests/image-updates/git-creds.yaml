@@ -1,0 +1,23 @@
+# The key Image Updater pushes with: a GitHub deploy key on your config repository, with WRITE
+# access. The private key lives in the secrets manager only.
+# insecure "false" turns on SSH host-key checking, against ArgoCD's list of known hosts.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: git-creds
+  namespace: argocd
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: bitwarden
+  target:
+    name: git-creds
+    template:
+      data:
+        sshPrivateKey: "{{ .key }}"
+        insecure: "false"
+  data:
+    - secretKey: key
+      remoteRef:
+        key: config-repo-write-key

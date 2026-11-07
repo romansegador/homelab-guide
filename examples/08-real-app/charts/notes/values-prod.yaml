@@ -1,0 +1,18 @@
+# Prod: runs a release (a version tag in the app repository). It changes only when you merge a
+# pull request that changes these two tags.
+host: notes.lab.home.example.com
+
+api:
+  image:
+    tag: 0.1.0
+web:
+  image:
+    tag: 0.1.0
+
+worker:
+  replicas: 2
+
+database:
+  size: 5Gi
+  backups:
+    enabled: true

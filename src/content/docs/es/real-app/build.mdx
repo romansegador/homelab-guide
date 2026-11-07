@@ -1,0 +1,186 @@
+---
+title: Construye la aplicación
+description: Una aplicación pequeña con una página web, una API, un proceso en segundo plano y una base de datos Postgres, en su propio repositorio privado. GitHub Actions construye sus imágenes en cada push, así que cada commit se puede desplegar.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+:::note[Traducción asistida por IA]
+Esta página es una traducción asistida por IA del original en inglés, que es la referencia. Si
+ves un error, abre un issue o un PR.
+:::
+
+El capítulo 6 desplegó un sitio estático con un solo contenedor y sin datos. La mayoría de las
+aplicaciones tienen más piezas. Este capítulo ejecuta una aplicación pequeña con todas las
+habituales, en dos entornos, y mantiene el primero al día por sí solo. Al final del capítulo
+tendrás:
+- una aplicación con una **página web**, una **API**, un **proceso en segundo plano** (worker) y
+  una **base de datos**, en su propio repositorio privado,
+- **CI** que construye sus imágenes en cada push a `main`, y una imagen de versión en cada tag de
+  versión,
+- dos entornos a partir de un **chart de Helm**: **staging**, que se actualiza solo con cada push,
+  y **prod**, que solo cambia cuando fusionas un pull request,
+- **Argo CD Image Updater**, que hace commit de cada nueva imagen de staging en tu repositorio de
+  configuración.
+
+Esta página construye la aplicación. [La siguiente](/es/real-app/deploy/) la despliega.
+
+<Aside type="tip" title="Hazlo con un agente de IA">
+Este capítulo tiene una skill para agentes, `real-app`. Consulta [Usar con un agente de IA](/es/start-here/agents/).
+</Aside>
+
+**Probado con:** Python 3.14, FastAPI 0.162, psycopg 3.3, nginx 1.30 (sin privilegios), GitHub
+Actions, en k3s v1.37.2+k3s1 con ArgoCD 3.6.1, Argo CD Image Updater 1.4.0 y CloudNativePG 1.30.1.
+
+## Algunas ideas primero
+
+### La aplicación
+La aplicación guarda notas. Escribes una nota en la página web, y un worker cuenta sus palabras en
+segundo plano. Es pequeña a propósito, pero tiene las piezas que tiene una aplicación real:
+
+```text
+browser ──▶ https://notes.lab.home.example.com
+              │  /api/…          everything else
+              ▼                  ▼
+            api  ──────┐        web  (static page, nginx)
+                       ▼
+                  Postgres  ◀────── worker  (picks up new notes, counts their words)
+```
+
+- **web**: una página HTML, servida por nginx, como en el capítulo 6.
+- **api**: una API en Python ([FastAPI](https://fastapi.tiangolo.com)). Lista las notas, y guarda
+  las nuevas como `pending`.
+- **worker**: un proceso de Python sin puerto web. Toma las notas `pending` de una en una, hace el
+  trabajo, y las marca como `done`.
+- **Postgres**: una base de datos por entorno, gestionada por el operador del capítulo 7.
+
+La página y la API comparten una dirección. El Ingress envía `/api/…` a la API y todo lo demás a
+la página, así que el navegador nunca hace una petición entre sitios distintos.
+
+### La base de datos también es la cola
+Un worker necesita una lista de trabajos pendientes. Aquí la lista es la propia tabla `notes`: el
+worker pide la nota `pending` más antigua con `FOR UPDATE SKIP LOCKED`, lo que hace que Postgres
+entregue cada nota a un solo worker. Pueden funcionar dos workers a la vez, y prod usa dos. No hay
+un servicio de colas aparte que ejecutar y respaldar.
+
+### Dos imágenes, tres contenedores
+La API y el worker son el mismo código de Python, así que comparten una imagen y ejecutan comandos
+distintos. La página web tiene su propia imagen. Así que CI construye dos imágenes:
+
+| Imagen | Se ejecuta como |
+|---|---|
+| `ghcr.io/<YOUR_GITHUB_USER>/notes-api` | la API (comando por defecto) y el worker (`python -m notes.worker`) |
+| `ghcr.io/<YOUR_GITHUB_USER>/notes-web` | la página web |
+
+### Dos tipos de tags de imagen
+- Cada push a `main` publica imágenes con el tag **`sha-<commit>`**, por ejemplo `sha-3f9c2a1`: los
+  siete primeros caracteres del commit. Staging ejecuta estas.
+- Un tag de versión en git, por ejemplo `v0.1.0`, publica imágenes con el tag **`0.1.0`**. Prod
+  ejecuta estas.
+
+Los dos tipos de tag apuntan para siempre a una misma construcción. El capítulo 6 explicó por qué
+no se usa `latest`.
+
+El razonamiento detrás de cada elección está en las [preguntas frecuentes](/es/start-here/faq/#capítulo-8--una-aplicación-real).
+
+## Antes de empezar
+
+- [ ] El capítulo 7 hecho: el operador de bases de datos y su plugin de copias funcionan, y la clave
+      del bucket de copias está en Bitwarden Secrets Manager.
+- [ ] Una copia del repositorio de la guía (tu fork del capítulo 6 sirve), para los archivos de
+      ejemplo.
+
+## Crea el repositorio de la aplicación
+
+<Steps>
+
+1. **Crea un repositorio privado** en GitHub, llamado **`notes`**, vacío: sin README ni licencia.
+   Los nombres de las imágenes salen del nombre del repositorio. Con otro nombre, las imágenes se
+   llaman `<nombre>-api` y `<nombre>-web`, y tendrás que cambiarlas en los archivos de la siguiente
+   página.
+
+2. **Copia la aplicación en él.** Desde la carpeta que contiene tu copia de la guía, copia
+   [`examples/08-real-app/app`](https://github.com/romansegador/homelab-guide/tree/main/examples/08-real-app/app)
+   en una carpeta nueva, incluidos sus archivos ocultos (`.github`, `.gitignore`, `.dockerignore`),
+   y súbela:
+
+   ```sh title="Portátil"
+   cp -R homelab-guide/examples/08-real-app/app notes
+   cd notes
+   git init -b main
+   git add .
+   git commit -m "Notes app"
+   git remote add origin git@github.com:<YOUR_GITHUB_USER>/notes.git
+   git push -u origin main
+   ```
+
+   La carpeta tiene:
+   - `notes/api.py`, `notes/worker.py` y `notes/db.py`: la API, el worker, y la tabla que
+     comparten.
+   - `Dockerfile`: la imagen de Python para la API y el worker.
+   - `web/`: la página, su configuración de nginx, y su `Dockerfile`.
+   - `.github/workflows/images.yml`: construye las dos imágenes.
+
+3. **Observa la primera construcción.** El push lanza el workflow **Images**, en la pestaña
+   **Actions** del repositorio. Construye las dos imágenes a la vez para amd64 y arm64, lo que tarda
+   unos cinco minutos la primera vez. Cuando está en verde, la pestaña **Packages** de tu perfil
+   muestra `notes-api` y `notes-web`. Las dos son privadas, como el repositorio.
+
+   Anota el tag que ha publicado: `sha-` y los siete primeros caracteres del commit. Muéstralo con:
+
+   ```sh title="Portátil"
+   echo "sha-$(git rev-parse --short=7 HEAD)"
+   ```
+
+   Lo necesitarás en la siguiente página.
+
+4. **Publica la primera versión para prod.** Pon un tag al mismo commit, y súbelo:
+
+   ```sh title="Portátil"
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+
+   El workflow se ejecuta de nuevo, y publica las dos imágenes con el tag `0.1.0`.
+
+</Steps>
+
+## Da al clúster un token del registro
+
+Las imágenes son privadas, así que el clúster necesita un token para descargarlas. Image Updater
+usa el mismo token para listar sus tags.
+
+<Steps>
+
+1. **Crea el token.** En GitHub: **Settings → Developer settings → Personal access tokens →
+   Tokens (classic) → Generate new token (classic)**:
+   - **Note:** por ejemplo `lab-1 registry pull`.
+   - **Expiration:** la que prefieras. Cuando caduque, el clúster no podrá descargar imágenes nuevas
+     hasta que lo sustituyas.
+   - **Scopes:** solo **`read:packages`**.
+
+   Tiene que ser un token *clásico*: el registro de GitHub no acepta tokens de grano fino.
+
+2. **Guárdalo** en Bitwarden Secrets Manager, en el proyecto del clúster (`lab-1`), como
+   **`ghcr-pull-token`**.
+
+</Steps>
+
+## Compruébalo
+
+**Las dos construcciones están ahí.** En la pestaña **Actions** del repositorio, el workflow
+**Images** está en verde para el push a `main` y para `v0.1.0`. La página de cada paquete muestra
+dos tags: `sha-…` y `0.1.0`.
+
+**Un pull request construye sin publicar.** Abre un pull request con cualquier cambio pequeño. El
+workflow se ejecuta, y construye las dos imágenes, pero no publica nada: las páginas de los paquetes
+no cambian. Cierra el pull request, o fusiónalo: fusionarlo publica una nueva imagen `sha-…`, que
+el staging de la siguiente página recogerá.
+
+## Antes de seguir
+
+- [ ] El repositorio `notes` existe, y su workflow **Images** está en verde.
+- [ ] Los dos paquetes tienen un tag `sha-…` y un tag `0.1.0`.
+- [ ] En Bitwarden Secrets Manager: `ghcr-pull-token`.
+
+Siguiente: [despliégala](/es/real-app/deploy/), en staging y prod.

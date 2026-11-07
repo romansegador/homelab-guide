@@ -84,6 +84,11 @@ export default defineConfig({
 					translations: { es: '7 · Una base de datos' },
 					items: [{ slug: 'database/postgres' }],
 				},
+				{
+					label: '8 · A real app',
+					translations: { es: '8 · Una aplicación real' },
+					items: [{ slug: 'real-app/build' }, { slug: 'real-app/deploy' }],
+				},
 			],
 		}),
 	],
