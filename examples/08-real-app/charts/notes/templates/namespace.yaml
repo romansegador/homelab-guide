@@ -1,0 +1,7 @@
+# The environment's namespace, declared here so ArgoCD deletes it with the app.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Release.Namespace }}
+  labels:
+    {{- include "notes.labels" . | nindent 4 }}

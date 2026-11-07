@@ -550,3 +550,145 @@ La opción `CreateNamespace=true` de ArgoCD crea un namespace si falta, pero Arg
 namespace creado así. Declarado como fichero en la carpeta de la aplicación, el namespace se
 gestiona como todo lo demás, así que quitar la aplicación también lo quita. Las aplicaciones de
 charts de Helm (cert-manager, el operador) mantienen la opción: se quedan instaladas.
+
+## Capítulo 8 · Una aplicación real
+
+### ¿Por qué una aplicación de ejemplo, y no una conocida de código abierto?
+Una aplicación que instalas con el chart de otra persona te enseña su chart. Aquí lo que importa es
+el camino desde *tu* código hasta dos entornos: tu repositorio, tu CI, tus imágenes, tu chart. El
+ejemplo es lo bastante pequeño para leerlo en unos minutos, y tiene las piezas que tienen la
+mayoría de las aplicaciones: una página, una API, un worker en segundo plano y una base de datos.
+Cámbialo por tu propia aplicación cuando el camino funcione.
+
+### ¿Por qué un chart de Helm ahora, después del YAML simple del capítulo 6?
+El capítulo 6 tenía una aplicación en un entorno. Aquí los mismos diez recursos se ejecutan dos
+veces, con pequeñas diferencias, y un chart los escribe una sola vez. **Kustomize** también lo
+hace, con una base y una capa por entorno, y viene integrado en `kubectl` y ArgoCD. Es una buena
+opción, sobre todo cuando los entornos se diferencian poco. Se eligió Helm por dos razones: el chart
+puede activar y desactivar partes enteras (las copias solo existen en prod), y el destino
+`helmvalues` de Image Updater cambia un tag en un archivo de valores de forma limpia. Con Kustomize,
+Image Updater edita en su lugar la lista `images:` de una capa, lo que funciona igual de bien.
+
+### ¿Por qué el chart vive en el repositorio de configuración, y no en el de la aplicación?
+El repositorio de configuración es el único sitio que dice qué se ejecuta en el clúster, y ArgoCD ya
+lo lee. Con el chart ahí, un cambio en el despliegue de la aplicación (más memoria, un ajuste nuevo)
+es un commit en el mismo sitio que el cambio de versión, revisado de la misma forma. Los equipos con
+muchas aplicaciones suelen guardar el chart junto al código, y publicarlo como un paquete que el
+repositorio de configuración nombra por versión. Es un buen siguiente paso cuando otras personas
+instalan tu aplicación, pero añade un paso de publicación en cada cambio del chart.
+
+### ¿Por qué Argo CD Image Updater?
+Es la herramienta del propio proyecto ArgoCD para esta tarea: vigila un registro, y escribe el nuevo
+tag de vuelta en git, así que ArgoCD sigue siendo lo único que cambia el clúster. Alternativas:
+- **CI sube los cambios al repositorio de configuración.** El workflow de la aplicación hace commit
+  del nuevo tag tras construir. Es simple, sin componentes extra, pero cada repositorio de aplicación
+  necesita entonces una clave que pueda escribir en tu repositorio de configuración, y CI decide qué
+  se ejecuta en el clúster.
+- **Renovate** (o Dependabot) abre pull requests para nuevas versiones de imágenes. Va muy bien para
+  versiones que revisas, por eso es una opción para prod. Para staging, un pull request por cada
+  commit es ruido.
+- **La automatización de imágenes de Flux** hace lo mismo que Image Updater, para Flux. Esta guía
+  usa ArgoCD.
+- **Keel** y herramientas parecidas cambian el Deployment directamente en el clúster. Entonces git
+  ya no dice qué se ejecuta.
+
+### ¿Por qué staging se actualiza solo, pero prod necesita un pull request?
+Staging existe para ejecutar cada cambio poco después de fusionarlo, para que veas los problemas
+ahí primero. Prod es de lo que dependes, y publicar una versión debería ser una decisión: un pull
+request registra quién cambió prod, cuándo y a qué versión, y un revert lo deshace. Si quieres ayuda
+con prod, Renovate puede abrir esos pull requests para cada nuevo tag de versión. Tú los sigues
+revisando y fusionando.
+
+### ¿Por qué tags `sha-…` para staging, y números de versión para prod?
+Un tag `sha-…` nombra el commit exacto que se construyó, y CI publica uno en cada push, así que
+staging puede seguir a `main` sin que nadie ponga tags de versión. Prod ejecuta versiones que has
+decidido publicar: `0.2.0` dice más que un hash de commit, y el tag en git marca el commit. Ninguno
+de los dos tipos de tag se mueve nunca, así que un commit en el repositorio de configuración siempre
+significa una construcción exacta. `latest` no se usa nunca, por las razones del capítulo 6.
+
+### ¿Por qué la estrategia `newest-build`?
+Los hashes de commit no se ordenan: `sha-0b1…` no es más antiguo que `sha-f3a…`. Así que Image
+Updater no puede elegir el más nuevo por el nombre. `newest-build` lee la fecha de construcción de
+cada imagen en el registro y toma la más reciente. `allowTags` lo limita a los tags `sha-`, para que
+un tag de versión nunca acabe en staging por accidente. Para prod, si lo automatizas más adelante,
+`semver` elige la versión más alta.
+
+### ¿Por qué Image Updater hace commit en git, y no cambia la aplicación en el clúster?
+Image Updater también puede funcionar sin git: entonces cambia la configuración de la Application
+directamente en el clúster (su método de escritura `argocd`). Es más simple, sin clave que
+gestionar, pero la versión en marcha solo existe entonces en el clúster: reconstruir desde tu
+repositorio de configuración volvería a una versión antigua. El método `git` mantiene la promesa del
+capítulo 3: el repositorio de configuración dice qué se ejecuta.
+
+### ¿Por qué una deploy key, y no un token o una GitHub App?
+Una **deploy key** llega a un solo repositorio y a nada más, y no puede entrar en la web ni en la API
+de GitHub. Es el acceso más pequeño que permite a Image Updater subir cambios. Un **token personal**
+llegaría a todos los repositorios a los que llegas tú. Una **GitHub App** es la opción más precisa,
+con tokens de vida corta, pero lleva más trabajo de configuración. Merece la pena cuando muchas
+herramientas necesitan acceso, o en una organización.
+
+### ¿No puede la deploy key subir cualquier cosa a `main`?
+Sí: puede escribir en todo el repositorio, no solo en el archivo de valores de staging. El plan
+gratuito de GitHub no puede proteger una rama en un repositorio privado. Medidas que ayudan: la
+clave solo vive en el gestor de secretos, Image Updater solo escribe los archivos que nombran sus
+reglas, y cada commit que hace queda visible en el historial, con su propio nombre. En una
+organización, o con un plan de pago, puedes dejar que la clave suba cambios solo a una rama, y hacer
+que Image Updater suba ahí.
+
+### ¿Por qué imágenes privadas, con un token clásico?
+El código de tu propia aplicación suele ser privado, y sus imágenes lo contienen. Así que el chart
+descarga las imágenes con un token, y Image Updater lee el registro con el mismo. El registro de
+GitHub solo acepta tokens personales *clásicos* para esto, y `read:packages` es el permiso más
+pequeño que puede leer imágenes. Una aplicación pública puede saltarse el token: haz públicos los
+paquetes, y quita `imagePullSecrets` y la línea `pullSecret`.
+
+### ¿Por qué usar la base de datos como cola, y no Redis o RabbitMQ?
+Un servicio de colas es una cosa más que ejecutar, proteger, respaldar y actualizar. Postgres ya
+puede repartir trabajos de forma segura: `SELECT … FOR UPDATE SKIP LOCKED` da cada trabajo a un solo
+worker, y un trabajo que falla vuelve a `pending`. Esto funciona bien hasta muchos trabajos por
+segundo, más de lo que necesitan casi todas las aplicaciones de un homelab. Recurre a una cola de
+verdad cuando necesites un rendimiento muy alto, reintentos programados con espera, o varios
+servicios que deban recibir los mismos mensajes.
+
+### ¿Por qué la aplicación crea su propia tabla al arrancar?
+Para que el ejemplo sea corto. Las aplicaciones reales cambian sus tablas con el tiempo, y usan una
+herramienta de **migraciones** (Alembic en Python, por ejemplo) que aplica cada cambio una vez, en
+orden. Ejecútala como un **Job** de Kubernetes antes de que arranque la nueva versión: ArgoCD lo
+ejecuta primero con un hook `PreSync`. El `CREATE TABLE IF NOT EXISTS` del ejemplo es seguro de
+ejecutar cada vez, y el bloqueo consultivo (advisory lock) evita que la API y el worker lo ejecuten
+en el mismo momento.
+
+### ¿Por qué una base de datos por entorno?
+Para que staging no pueda dañar los datos de prod, ni siquiera por un fallo en una versión nueva, y
+para que puedas borrar y recrear staging libremente. Una base de datos por entorno cuesta un poco de
+memoria, y el operador crea cada una con unas pocas líneas en el chart.
+
+### ¿Por qué las copias solo están activadas en prod?
+Los datos de staging son datos de prueba que puedes perder. Respaldarlos costaría almacenamiento, y
+sus archivos WAL se mezclarían con los de prod en el bucket. Para proteger también staging, pon
+`database.backups.enabled: true` en `values-staging.yaml`: tendrá su propia carpeta en el bucket,
+`notes-staging/`.
+
+### ¿Por qué el worker comparte la imagen de la API?
+Son el mismo código de Python, con las mismas bibliotecas y la misma tabla, solo que arrancan con un
+comando distinto. Una imagen significa una construcción, y la API y el worker siempre tienen la
+misma versión. Sepáralos cuando se distancien, por ejemplo cuando el worker necesite bibliotecas
+pesadas que la API no usa.
+
+### ¿Por qué el Ingress separa `/api`, y no nginx?
+nginx podría pasar `/api` a la API él mismo. Hacerlo en el Ingress mantiene la imagen web como un
+sitio estático simple, y el enrutado visible en un solo sitio, el chart. La página y la API
+comparten una dirección en los dos casos, así que el navegador no necesita ajustes entre orígenes.
+
+### ¿Por qué Python y FastAPI?
+Python es el lenguaje que más gente lee, así que el ejemplo es fácil de seguir escribas en lo que
+escribas. FastAPI es una forma pequeña y actual de escribir una API en Python. El capítulo no
+depende de ninguno de los dos: sirve cualquier lenguaje, si su imagen escucha en un puerto y lee
+`DATABASE_URL`.
+
+### ¿Por qué construir para arm64 con emulación?
+La imagen de Python instala sus bibliotecas para cada plataforma, así que, a diferencia del sitio
+estático del capítulo 6, la construcción de arm64 no puede reutilizar la de amd64. La máquina de CI
+emula arm64 para esa parte. Es más lento, unos minutos, pero no necesita configuración extra. Si
+solo usas máquinas amd64, quita `linux/arm64` del workflow para reducir a la mitad el tiempo de
+construcción.

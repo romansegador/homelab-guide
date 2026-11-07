@@ -1,0 +1,246 @@
+---
+title: Despliégala y actualízala
+description: Despliega la aplicación en staging y prod a partir de un chart de Helm, cada uno con su propia base de datos. Argo CD Image Updater lleva staging a cada nueva construcción por sí solo; prod solo cambia mediante un pull request.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+:::note[Traducción asistida por IA]
+Esta página es una traducción asistida por IA del original en inglés, que es la referencia. Si
+ves un error, abre un issue o un PR.
+:::
+
+Las imágenes de la aplicación están en el registro. Esta página las ejecuta, dos veces:
+
+| | Staging | Prod |
+|---|---|---|
+| Dirección | `notes-staging.lab.home.example.com` | `notes.lab.home.example.com` |
+| Ejecuta | la construcción `sha-…` más reciente de `main` | una versión, `0.1.0` |
+| Cambia cuando | CI publica una construcción nueva (Image Updater hace el commit) | fusionas un pull request |
+| Workers | 1 | 2 |
+| Copias de la base de datos | ninguna | cada noche y continuas, al bucket del capítulo 7 |
+
+## Algunas ideas primero
+
+### Un chart, dos entornos
+La aplicación son unos diez recursos de Kubernetes, y los dos entornos los necesitan todos, con
+algunas diferencias: la dirección, los tags de las imágenes, el número de workers, las copias. Un
+**chart de Helm** escribe los recursos una sola vez, como plantillas. Cada entorno es entonces un
+archivo corto con solo lo que cambia:
+
+```text
+charts/notes/
+├── Chart.yaml
+├── values.yaml           shared defaults
+├── values-staging.yaml   staging's address and tags
+├── values-prod.yaml      prod's address, tags, 2 workers, backups on
+└── templates/            the Deployments, Services, Ingress, database…
+```
+
+El chart vive en tu repositorio de configuración, junto al resto de la configuración del clúster.
+ArgoCD lo genera con el archivo de cada entorno, como dos Applications: `notes-staging` y
+`notes-prod`.
+
+### Quién cambia los tags
+```text
+push to main ──▶ CI publishes notes-api:sha-3f9c2a1 ──▶ Image Updater sees it (every 2 minutes)
+                                                              │ commits the new tag to
+                                                              ▼ values-staging.yaml
+                                     ArgoCD deploys the commit to staging
+
+git tag v0.2.0 ──▶ CI publishes notes-api:0.2.0 ──▶ you open a pull request that changes
+                                                   values-prod.yaml ──▶ merge ──▶ ArgoCD deploys prod
+```
+
+**Argo CD Image Updater** se ejecuta en el clúster y vigila el registro. Cuando aparece una imagen
+`sha-…` más nueva, no cambia la aplicación en marcha directamente. Hace **commit** del nuevo tag en
+`values-staging.yaml` de tu repositorio de configuración, y ArgoCD despliega ese commit como
+cualquier otro. Así git sigue diciendo qué se ejecuta, y una construcción mala se deshace con
+`git revert`.
+
+Para subir esos commits, Image Updater necesita una clave que pueda **escribir** en tu repositorio
+de configuración. Solo vigila staging, así que prod solo cambia cuando tú lo cambias.
+
+## Antes de empezar
+
+- [ ] [La aplicación está construida](/es/real-app/build/): las dos imágenes tienen un tag `sha-…`
+      y un tag `0.1.0`.
+- [ ] `ghcr-pull-token` está en Bitwarden Secrets Manager.
+
+## Prepáralo
+
+<Steps>
+
+1. **Crea una clave que pueda subir cambios a tu repositorio de configuración.** Crea un nuevo par
+   de claves SSH en una carpeta temporal:
+
+   ```sh title="Portátil"
+   ssh-keygen -q -t ed25519 -N "" -C image-updater -f /tmp/image-updater-key
+   cat /tmp/image-updater-key.pub
+   ```
+
+   En GitHub, abre tu repositorio de **configuración**: **Settings → Deploy keys → Add deploy key**:
+   - **Title:** `image-updater`.
+   - **Key:** la línea que ha mostrado `cat`, que empieza por `ssh-ed25519`.
+   - **Allow write access:** marcado. Sin esto, Image Updater no puede subir cambios.
+
+   Copia la clave privada al portapapeles, sin mostrarla:
+
+   ```sh title="Portátil"
+   pbcopy < /tmp/image-updater-key
+   ```
+
+   En Bitwarden Secrets Manager, añádela al proyecto del clúster (`lab-1`) como
+   **`config-repo-write-key`**. Pégala tal cual: el valor ocupa varias líneas, desde
+   `-----BEGIN OPENSSH PRIVATE KEY-----` hasta `-----END OPENSSH PRIVATE KEY-----`. Después borra
+   los dos archivos:
+
+   ```sh title="Portátil"
+   rm /tmp/image-updater-key /tmp/image-updater-key.pub
+   ```
+
+   `pbcopy` es de macOS. En Linux usa `wl-copy` (Wayland) o `xclip -selection clipboard` (X11).
+
+   <Aside type="caution">
+   Mantén esta clave fuera del **agente SSH** de tu gestor de contraseñas, si tiene uno. Un agente
+   ofrece cada clave que guarda cuando te conectas a GitHub, y GitHub acepta la primera que
+   funciona. Si esta deploy key va primero, entras como una clave que solo llega a tu repositorio
+   de configuración, y subir cambios a cualquier otro repositorio falla con
+   `Repository not found`.
+   </Aside>
+
+2. **Añade los archivos a tu repositorio de configuración.** Copia estas carpetas de
+   [`examples/08-real-app`](https://github.com/romansegador/homelab-guide/tree/main/examples/08-real-app)
+   en tu repositorio de configuración, combinándolas con las tuyas. Deja fuera `app/`: es el
+   repositorio de la aplicación que ya subiste.
+   - `apps/`: `notes-staging.yaml` y `notes-prod.yaml` (una Application por entorno),
+     `argocd-image-updater.yaml` (instala Image Updater), e `image-updates.yaml` (sus reglas).
+   - `charts/notes/`: el chart.
+   - `manifests/image-updates/`: la regla de staging, y las dos credenciales que usa Image Updater.
+
+3. **Rellena tus valores.**
+   - `<YOUR_CONFIG_REPO_URL>`: en los cuatro archivos de `apps/`, y en
+     `manifests/image-updates/notes-staging.yaml`. Usa la dirección SSH (`git@github.com:…`): la
+     deploy key solo funciona por SSH.
+   - `<YOUR_GITHUB_USER>`: en `charts/notes/values.yaml`, en
+     `manifests/image-updates/notes-staging.yaml`, y en
+     `manifests/image-updates/registry-credentials.yaml`. En minúsculas: los nombres de imagen
+     siempre van en minúsculas.
+   - `lab.home.example.com`: en `charts/notes/values.yaml`, `values-staging.yaml` y
+     `values-prod.yaml`, y en el email de los commits en `apps/argocd-image-updater.yaml`.
+   - `<YOUR_FIRST_SHA_TAG>`: en `charts/notes/values-staging.yaml`, el tag que anotaste en la página
+     anterior, para las dos imágenes. A partir de ahora lo cambia Image Updater.
+   - `<YOUR_BACKUP_BUCKET>` y `<YOUR_CLOUDFLARE_ACCOUNT_ID>` en `charts/notes/values.yaml`: los
+     mismos que en el capítulo 7. Para un bucket en la jurisdicción de la UE, la dirección termina
+     en `.eu.r2.cloudflarestorage.com`.
+
+   Busca en las carpetas si queda alguno:
+
+   ```sh title="Portátil"
+   grep -rn "<YOUR_" apps charts/notes manifests/image-updates
+   ```
+
+   No muestra nada. Haz commit y push a `main`.
+
+4. **Observa cómo arranca.** ArgoCD instala Image Updater, y después crea los dos entornos: el
+   namespace, la base de datos, y luego la aplicación. La base de datos tarda un minuto o dos, y la
+   API y el worker se reinician hasta que está lista. Al cabo de unos cinco minutos:
+
+   ```sh title="Portátil"
+   kubectl -n argocd get applications
+   kubectl -n notes-staging get pods
+   kubectl -n notes-prod get pods
+   ```
+
+   Todas las Applications están `Synced` y `Healthy`. Staging ejecuta un pod `api`, uno `web` y uno
+   `worker`, y su base de datos, `notes-staging-1`. Prod ejecuta dos workers, y su base de datos es
+   `notes-prod-1`. Todos los pods están `Running`.
+
+</Steps>
+
+## Compruébalo
+
+**La aplicación funciona.** Abre `https://notes-staging.lab.home.example.com` y añade una nota.
+Aparece como `[pending]`, y un segundo después como `[done, N words]`: el worker la ha recogido. El
+pie de página muestra la versión de la API, el tag `sha-…` que ejecuta staging. Haz lo mismo en
+`https://notes.lab.home.example.com`: ahí, el pie dice `0.1.0`.
+
+Cada entorno tiene su propia base de datos, así que una nota añadida en staging no aparece en prod.
+
+El registro del worker muestra cada nota que ha terminado:
+
+```sh title="Portátil"
+kubectl -n notes-staging logs deploy/worker
+```
+
+**Prod tiene copias de seguridad.** Su base de datos envía los archivos WAL al bucket, como la demo
+del capítulo 7:
+
+```sh title="Portátil"
+kubectl -n notes-prod get backups
+kubectl -n notes-prod get cluster notes-prod -o jsonpath='{.status.conditions[?(@.type=="ContinuousArchiving")].status}'; echo
+```
+
+La primera copia está `completed`, y el segundo comando muestra `True`. En R2, el bucket tiene
+ahora una carpeta `notes-prod/`.
+
+**Staging se actualiza solo.** En el repositorio de la aplicación, cambia algo que se vea, por
+ejemplo el título de la página en `web/index.html`, y después haz commit y push a `main`:
+
+```sh title="Portátil"
+git commit -am "Change the title"
+git push
+```
+
+Cuando el workflow **Images** está en verde, Image Updater encuentra las nuevas imágenes en menos de
+dos minutos. Hace commit del nuevo tag en tu repositorio de configuración, como
+`argocd-image-updater`:
+
+```sh title="Portátil"
+git pull
+git log -3 --format='%h %an %s' -- charts/notes/values-staging.yaml
+```
+
+Ejecútalo en tu repositorio de configuración. El commit más reciente es de Image Updater, y
+`values-staging.yaml` tiene el nuevo tag. Un minuto después ArgoCD lo despliega: staging muestra el
+nuevo título y la nueva versión en su pie de página. Prod no ha cambiado.
+
+A partir de ahora Image Updater sube cambios a `main`, así que ejecuta `git pull` en tu repositorio
+de configuración antes de cambiar nada en él.
+
+**Lleva una versión a prod.** En el repositorio de la aplicación, pon un tag al commit que ejecuta
+staging, y súbelo:
+
+```sh title="Portátil"
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+Cuando el workflow está en verde, cambia los dos tags de `charts/notes/values-prod.yaml` en tu
+repositorio de configuración de `0.1.0` a `0.2.0`, en una rama nueva, y abre un pull request:
+
+```sh title="Portátil"
+git switch -c prod-0.2.0
+git commit -am "Prod: notes 0.2.0"
+git push -u origin prod-0.2.0
+```
+
+Fusiona el pull request en GitHub. Tras la siguiente sincronización, prod muestra el nuevo título, y
+su pie de página dice `0.2.0`.
+
+**Vuelve atrás en prod.** Abre el pull request fusionado en GitHub y pulsa **Revert**. GitHub abre
+un nuevo pull request que lo deshace: fusiónalo. Tras la siguiente sincronización, prod vuelve a
+`0.1.0`. Volver atrás también es un pull request, así que cada cambio en prod queda revisado y
+registrado. La base de datos no vuelve atrás: solo cambia la versión de la aplicación.
+
+## Antes de seguir
+
+- [ ] Todas las comprobaciones pasan: staging se ha actualizado solo, y prod solo ha cambiado
+      mediante tu pull request.
+- [ ] En Bitwarden Secrets Manager: `ghcr-pull-token` y `config-repo-write-key`.
+- [ ] La deploy key está en tu repositorio de configuración, con permiso de escritura, y los archivos
+      de la clave están borrados de tu portátil.
+
+Esta es la rutina para cada aplicación a partir de ahora: CI construye cada commit, staging sigue a
+`main`, y prod avanza de pull request en pull request. Siguiente: salir a internet, con una
+aplicación accesible desde fuera.

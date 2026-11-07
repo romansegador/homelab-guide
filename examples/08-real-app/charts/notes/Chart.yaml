@@ -1,0 +1,5 @@
+apiVersion: v2
+name: notes
+description: The guide's sample app (web, API, worker, Postgres), one release per environment.
+type: application
+version: 0.1.0
