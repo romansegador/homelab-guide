@@ -1,0 +1,17 @@
+# The tunnel token (tofu output -raw tunnel_token), stored in the secrets manager as cloudflare-tunnel-token.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: tunnel-token
+  namespace: cloudflared
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: bitwarden
+  target:
+    name: tunnel-token
+  data:
+    - secretKey: TUNNEL_TOKEN
+      remoteRef:
+        key: cloudflare-tunnel-token

@@ -681,3 +681,82 @@ image tags Image Updater changes.
 When this was written, Sablier's chart still installed an older version (1.16) than the latest
 release (1.19). Plain files pin the exact version, and they're short: an account, its permissions,
 one Deployment and one Service.
+
+## Chapter 9 · Going public
+
+### Why a tunnel, and not a port forward on the router?
+A port forward makes your home IP address public, and leaves a port open that anyone on the internet
+can probe, including through every flaw your apps will ever have. Many home connections also can't
+forward ports at all (carrier-grade NAT), or change IP address often. A tunnel needs only an
+outgoing connection, keeps your address private, and lets Cloudflare filter traffic before it
+reaches you. The price is that Cloudflare sits in the middle (see below).
+
+### Why Cloudflare Tunnel?
+Your domain's DNS is already on Cloudflare (chapter 5), the tunnel and Access are free, and the
+same dashboard and API manage both. Alternatives:
+- **Tailscale Funnel** publishes a service through Tailscale. Simple if you already use Tailscale,
+  but with fewer access controls, and addresses under Tailscale's own domain.
+- **ngrok** and similar services work the same way. Their free plans limit custom domains and
+  traffic.
+- **A small cloud server** (a VPS) running a reverse proxy, with a VPN (WireGuard) back home, or
+  **self-hosted tunnels** such as Pangolin or frp on that server. You control everything, and
+  nobody else sees your traffic, but you pay for the server, and you secure and update it yourself.
+
+### Does Cloudflare see my traffic?
+Yes. Cloudflare ends the HTTPS connection from the browser at its edge, then sends the request down
+the tunnel, so it can read it. That's how Access can check the login, and how it can filter
+attacks. For a homelab app it's usually an acceptable trade. For data you don't want any third party
+to see, use a VPN instead, such as WireGuard or Tailscale, where traffic is encrypted end to end
+and you're the only one who can reach the app.
+
+### Why put Cloudflare Access in front, and not rely on the app's own login?
+The notes app has none, and the login of many apps hasn't been tested against the whole internet.
+With Access, a request from someone not on your list stops at Cloudflare: it never reaches your
+cluster, so a flaw in the app can't be reached by them. Keep the app's own login too when it has
+one: two locks are better than one. Leave Access out only for something meant for everyone, like a
+public website.
+
+### Why a one-time PIN by email?
+It needs no setup: no account at another service, no app to register. Anyone with an email address
+can log in, if you've allowed that address. Access can also use GitHub, Google, Microsoft and
+others as identity providers, all on the free plan. They're nicer for frequent use, and each takes
+a few minutes to set up.
+
+### Why OpenTofu for Cloudflare, and not the dashboard?
+The tunnel, its addresses, the DNS records and who may log in are part of your setup, like the
+machine in chapter 1. In OpenTofu, they're reviewed in a commit, `tofu plan` shows exactly what will
+change before anything does, and you can rebuild them. Clicking in the dashboard is quicker the
+first time, but nothing records what you did. cloudflared also supports a configuration file listing
+the addresses, which would keep them in your config repository, but the Access rules would still be
+clicks.
+
+### Why does the tunnel go to Traefik, and not straight to the app?
+Then a public app is an ordinary Ingress, like every app on your network, with the same certificate
+handling and the same middlewares (the optional sleep page of chapter 8 keeps working). Pointing
+the tunnel at each app's Service skips a hop, but every new app means a change to the tunnel, and
+Traefik's features are lost.
+
+### Why HTTPS between cloudflared and Traefik, with a certificate check?
+Inside the cluster the hop is short, but checking it costs little: cert-manager already gets
+certificates from Let's Encrypt, and cloudflared checks it against the name (`origin_server_name`).
+The common shortcut is to turn verification off (`noTLSVerify`), which works with any certificate,
+and would also accept a fake one.
+
+### Why two cloudflared pods?
+A tunnel can have several connectors, and Cloudflare spreads requests across them. With two, an
+update or a restart of one never takes the public app offline. The free plan allows up to 25 per
+tunnel.
+
+### Why is the tunnel token in the secrets manager, and not just in the cluster?
+Like every other secret in this guide: if you rebuild the cluster, ArgoCD and External Secrets put
+everything back, the token included, without you copying anything by hand. Anyone with the token
+can run a connector for your tunnel, so it's a secret like a password. To replace it, run
+`tofu apply -replace=cloudflare_zero_trust_tunnel_cloudflared.lab1`: OpenTofu makes a new tunnel
+and points the DNS records at it. Then store the new token in the secrets manager.
+
+### What stays free, and what would cost money?
+Everything in this chapter is on the free plan, far under its limits (see the table on the page).
+What would cost money: more than 50 people logging in through Access, and features this guide
+doesn't use, such as Access logs kept for longer, extra rate-limiting rules, or load balancing.
+If you add apps, check the seats first: each person who logs in counts once, whatever number of
+apps they use.

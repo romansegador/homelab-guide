@@ -4,6 +4,10 @@
 # The app's address. Covered by the wildcard DNS record and certificate from chapter 5.
 host: notes.lab.home.example.com
 
+# A public name (chapter 9, optional), served through your Cloudflare tunnel behind Cloudflare
+# Access. Adds a certificate and an Ingress for it. Empty = reachable on your network only.
+publicHost: ""
+
 # Sleep when idle (optional, needs Sablier): after `sessionDuration` without requests, the API, the
 # worker and the page scale to zero; the next visit shows a waiting page while they start. The
 # database keeps running.

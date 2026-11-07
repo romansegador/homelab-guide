@@ -1,0 +1,248 @@
+---
+title: Salir a internet
+description: Publica una aplicación en internet a través de un túnel de Cloudflare, con Cloudflare Access pidiendo un inicio de sesión antes de que ninguna petición llegue a tu red. Todo en OpenTofu, y todo en el plan gratuito de Cloudflare.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+:::note[Traducción asistida por IA]
+Esta página es una traducción asistida por IA del original en inglés, que es la referencia. Si
+ves un error, abre un issue o un PR.
+:::
+
+Hasta ahora todo es accesible solo desde tu red. Este capítulo publica una aplicación, el prod de
+la aplicación de notas, en una dirección pública, sin abrir ningún puerto en tu router. Al final
+tendrás:
+- un **túnel de Cloudflare**: un pequeño programa en tu clúster, **cloudflared**, que se conecta
+  *hacia fuera* con Cloudflare y trae las peticiones públicas hacia dentro,
+- **Cloudflare Access** delante de la aplicación: una página de inicio de sesión, para que solo
+  las personas que indiques puedan llegar a ella,
+- el túnel, la dirección pública y la regla de acceso escritos en **OpenTofu**, como la máquina del
+  capítulo 1,
+- `https://notes.example.com` funcionando desde cualquier sitio, y pidiendo iniciar sesión primero.
+
+Todo cabe en el **plan gratuito de Cloudflare**, muy por debajo de sus límites. Cada paso dice qué
+límite aplica.
+
+<Aside type="tip" title="Hazlo con un agente de IA">
+Este capítulo tiene una skill para agentes, `going-public`. Consulta [Usar con un agente de IA](/es/start-here/agents/).
+</Aside>
+
+**Probado con:** cloudflared 2026.10.7, OpenTofu 1.13 con el proveedor de Cloudflare 5.28, en k3s
+v1.37.2+k3s1 con ArgoCD 3.6.1 y cert-manager. Plan gratuito de Cloudflare Zero Trust.
+
+## Algunas ideas primero
+
+### Un túnel en lugar de un puerto abierto
+La forma habitual de publicar un servidor de casa es redirigir un puerto del router hacia él.
+Entonces tu IP de casa es pública, y cualquiera en internet puede llamar a ese puerto. Un túnel lo
+hace al revés: cloudflared, dentro de tu clúster, abre una conexión de salida hacia Cloudflare y la
+mantiene abierta. Las peticiones públicas llegan a Cloudflare, y bajan por esa conexión. Tu router
+no abre nada, y tu dirección IP sigue siendo privada.
+
+```text
+someone on the internet
+        │ https://notes.example.com
+        ▼
+Cloudflare ── Access: logged in, and on the list? ── no ──▶ login page
+        │ yes
+        ▼  (the tunnel: an outgoing connection cloudflared keeps open)
+cloudflared ──▶ Traefik (HTTPS, checks the certificate) ──▶ the notes app
+└──────────────────────────── your cluster ────────────────────────────┘
+```
+
+### Un inicio de sesión delante de la aplicación
+La aplicación de notas no tiene inicio de sesión propio, y el de muchas aplicaciones de homelab es
+débil. **Cloudflare Access** se pone delante: antes de que una petición baje por el túnel,
+Cloudflare pregunta quién es. Aquí el inicio de sesión es un **código de un solo uso** (one-time
+PIN): escribes tu email, y Cloudflare te envía un código. Solo las direcciones que indiques
+reciben uno. Las peticiones de cualquier otra persona nunca llegan a tu red.
+
+### A través de Traefik, como cualquier otra aplicación
+El túnel envía todas las direcciones públicas a Traefik, que las enruta por nombre como cualquier
+otra aplicación. Así que publicar una aplicación son dos cosas: la dirección y su regla de acceso
+en OpenTofu, y un Ingress para el nombre público en el chart de la aplicación. cloudflared nunca
+cambia, y recibe su lista de direcciones de Cloudflare.
+
+Entre cloudflared y Traefik, la petición también usa HTTPS, con un certificado de Let's Encrypt
+para el nombre público, del mismo emisor que en el capítulo 5. cloudflared lo comprueba, así que
+incluso el salto dentro de tu clúster va cifrado y verificado.
+
+### El plan gratuito
+| Lo que creas | Límite gratuito | Este capítulo |
+|---|---|---|
+| Túneles | 1.000 por cuenta | 1 |
+| Direcciones públicas en un túnel | sin número fijo | 1 |
+| Aplicaciones de Access | 500 | 1 |
+| Políticas de Access | 500 | 1 |
+| Personas que inician sesión con Access | 50 | 1 (tú) |
+| Registros DNS | gratis | 1 |
+
+Cada persona que inicia sesión ocupa una de las 50 plazas, use las aplicaciones que use. El
+certificado viene de Let's Encrypt, que es gratuito y no forma parte de Cloudflare.
+
+El razonamiento detrás de cada elección está en las [preguntas frecuentes](/es/start-here/faq/#capítulo-9--salir-a-internet).
+
+## Antes de empezar
+
+- [ ] El capítulo 8 hecho: la aplicación de notas funciona en prod, en `notes.lab.home.example.com`.
+- [ ] El DNS de tu dominio está en Cloudflare, como en el capítulo 5.
+- [ ] Tu configuración de OpenTofu del capítulo 1: el bucket del estado, su clave y la frase de
+      paso del estado.
+
+## Prepara Cloudflare
+
+<Steps>
+
+1. **Crea tu organización de Zero Trust.** En el panel de Cloudflare, abre **Zero Trust**. La
+   primera vez, pide un **nombre de equipo** (team name), que será la dirección de tu página de
+   inicio de sesión (`<team>.cloudflareaccess.com`), y un plan: elige **Free**. Puede que Cloudflare
+   pida un método de pago, como hizo R2 en el capítulo 1. El plan gratuito no se cobra.
+
+   Después comprueba los métodos de inicio de sesión (**Settings → Authentication**, o
+   **Integrations → Identity providers** en los paneles más nuevos): aparece **One-time PIN**. Si
+   no aparece, añádelo. No necesita configuración.
+
+2. **Anota dos identificadores.** Ninguno es secreto. En la página **Overview** de tu dominio en el
+   panel, la columna de la derecha muestra el **Zone ID** y el **Account ID**.
+
+3. **Crea un token de API para OpenTofu.** **My Profile → API Tokens → Create Token → Create Custom
+   Token**, con estos permisos, todos disponibles en el plan gratuito:
+   - Account · **Cloudflare Tunnel** · Edit
+   - Account · **Access: Apps and Policies** · Edit
+   - Zone · **DNS** · Edit, con **Zone Resources** en *Specific zone* y tu dominio
+
+   Guárdalo en tu gestor de contraseñas. OpenTofu lo pide cada vez que se ejecuta, y nunca lo
+   guarda.
+
+</Steps>
+
+## Crea el túnel con OpenTofu
+
+<Steps>
+
+1. **Añade los archivos a tu repositorio de configuración.** Copia
+   [`examples/09-going-public`](https://github.com/romansegador/homelab-guide/tree/main/examples/09-going-public)
+   en tu repositorio de configuración, combinando sus carpetas con las tuyas:
+   - `infra/cloudflare/`: el túnel, sus direcciones públicas, sus registros DNS y sus reglas de
+     Access.
+   - `apps/cloudflared.yaml` y `manifests/cloudflared/`: cloudflared, en el clúster.
+
+   Después, en `infra/cloudflare/`:
+   - Copia tu `backend.hcl` de `infra/proxmox/`. Los dos usan el mismo bucket, con un archivo
+     distinto para cada estado (`cloudflare/terraform.tfstate` aquí).
+   - Copia `terraform.tfvars.example` a `terraform.tfvars`, y rellena tu account id, tu zone id, tu
+     dominio, y tu email en `allow_emails`. `public_apps` lista las aplicaciones que publicar, por
+     nombre: `notes` se convierte en `notes.example.com`.
+
+   En `apps/cloudflared.yaml`, sustituye `<YOUR_CONFIG_REPO_URL>`, como antes. No hagas push
+   todavía: cloudflared necesita el token del túnel, que crean los siguientes pasos.
+
+2. **Planifícalo.** OpenTofu pide cuatro valores, sin mostrarlos: el token de API, las dos claves
+   del bucket del estado, y la frase de paso del estado:
+
+   ```sh title="Portátil"
+   cd infra/cloudflare
+   source ./load-secrets.sh
+   tofu init -backend-config=backend.hcl
+   tofu plan
+   ```
+
+   El plan termina con `Plan: 5 to add, 0 to change, 0 to destroy.`:
+   - el túnel, `lab-1`,
+   - su configuración: `notes.example.com` va a Traefik, cualquier otra cosa recibe un 404,
+   - un registro DNS para `notes.example.com`, que apunta al túnel,
+   - una política de Access que permite tu email,
+   - una aplicación de Access para `notes.example.com` que usa esa política.
+
+   Nada más cambia en tu cuenta de Cloudflare. OpenTofu también avisa de que no puede borrar la
+   configuración del túnel: es un límite del proveedor, y la configuración desaparece con el túnel.
+
+3. **Aplícalo,** y copia el token del túnel al portapapeles:
+
+   ```sh title="Portátil"
+   tofu apply
+   tofu output -raw tunnel_token | pbcopy
+   ```
+
+   En Bitwarden Secrets Manager, añádelo al proyecto del clúster (`lab-1`) como
+   **`cloudflare-tunnel-token`**. Cualquiera con este token puede conectar su propio cloudflared a
+   tu túnel, así que trátalo como una contraseña.
+
+   Haz commit de `infra/cloudflare/`, incluido `.terraform.lock.hcl`, que fija la versión exacta del
+   proveedor. El token y el estado nunca llegan a git: el estado vive en tu bucket, cifrado.
+
+</Steps>
+
+## Publica la aplicación
+
+<Steps>
+
+1. **Dale a la aplicación su nombre público.** En `charts/notes/values-prod.yaml`, pon:
+
+   ```yaml
+   publicHost: notes.example.com
+   ```
+
+   El chart añade entonces un certificado para ese nombre, y un Ingress para él junto al de tu red.
+
+2. **Haz commit y push** del cambio del chart, de `apps/cloudflared.yaml` y de
+   `manifests/cloudflared/`. Al cabo de un minuto o dos:
+
+   ```sh title="Portátil"
+   kubectl -n cloudflared get pods
+   kubectl -n cloudflared logs deployment/cloudflared | grep -E "Registered tunnel connection|Updated to new configuration"
+   kubectl -n notes-prod get certificate notes-public
+   ```
+
+   Dos pods `cloudflared` están `Running`, y el registro muestra conexiones registradas con
+   Cloudflare y la configuración que ha recibido, con `notes.example.com` dentro. El certificado está
+   `Ready`: cert-manager lo ha obtenido de Let's Encrypt, como el wildcard del capítulo 5.
+
+</Steps>
+
+## Compruébalo
+
+**Pide iniciar sesión.** En un móvil con el Wi-Fi apagado, abre `https://notes.example.com`. Aparece
+la página de inicio de sesión de Cloudflare. Escribe tu email, y después el código que te envía
+Cloudflare. Se abre la aplicación de notas, con las notas de prod.
+
+**Nadie más entra.** Cierra la sesión (o usa una ventana privada) y prueba con otro email: el código
+nunca llega. Cloudflare no dice qué direcciones están permitidas, así que muestra la misma página de
+"revisa tu email" en los dos casos. La petición nunca llegó a tu clúster.
+
+**El túnel está sano.** En el panel de Zero Trust, la página de túneles (bajo **Networks**) muestra
+`lab-1` como **Healthy**, con dos conectores. Tu router no tiene ninguna redirección de puertos
+nueva: la única forma de entrar es a través de Cloudflare.
+
+**El salto dentro del clúster está verificado.** Desde tu portátil, pide a Traefik el nombre público
+directamente, como hace cloudflared:
+
+```sh title="Portátil"
+curl -sS -o /dev/null -w '%{http_code} %{ssl_verify_result}\n' --resolve notes.example.com:443:192.168.10.50 https://notes.example.com/
+```
+
+Muestra `200 0`: Traefik ha respondido, con un certificado válido para el nombre. Usa la IP de tu
+máquina en lugar de `192.168.10.50`.
+
+## Publica otra aplicación más adelante
+
+1. Añádela a `public_apps` en `infra/cloudflare/terraform.tfvars`, con quién puede iniciar sesión.
+   Revisa las plazas: cada persona nueva es una de las 50.
+2. `tofu plan`, y después `tofu apply`: tres recursos nuevos (un registro DNS, una política, una
+   aplicación), y la configuración del túnel gana una línea.
+3. Dale a la aplicación un Ingress y un certificado para su nombre público, como `publicHost` en el
+   chart de notas.
+
+cloudflared no cambia: recibe la nueva dirección de Cloudflare.
+
+## Antes de seguir
+
+- [ ] `https://notes.example.com` pide iniciar sesión, y muestra la aplicación después.
+- [ ] Otro email no puede entrar.
+- [ ] En Bitwarden Secrets Manager: `cloudflare-tunnel-token`. En tu gestor de contraseñas: el token
+      de API de Cloudflare para OpenTofu.
+- [ ] `infra/cloudflare/` con commit, con `.terraform.lock.hcl`, sin `terraform.tfstate`.
+
+Siguiente: el día 2. Actualizaciones, copias de seguridad y restauraciones, monitorización básica, y
+una reconstrucción completa desde cero.

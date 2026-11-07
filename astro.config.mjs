@@ -93,6 +93,11 @@ export default defineConfig({
 						{ slug: 'real-app/sleep' },
 					],
 				},
+				{
+					label: '9 · Going public',
+					translations: { es: '9 · Salir a internet' },
+					items: [{ slug: 'going-public/tunnel' }],
+				},
 			],
 		}),
 	],

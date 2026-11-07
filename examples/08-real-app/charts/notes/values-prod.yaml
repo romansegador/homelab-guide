@@ -1,6 +1,8 @@
 # Prod: runs a release (a version tag in the app repository). It changes only when you merge a
 # pull request that changes these two tags.
 host: notes.lab.home.example.com
+# Chapter 9: also public, through the tunnel, behind Cloudflare Access. Leave empty until then.
+publicHost: ""
 
 api:
   image:
