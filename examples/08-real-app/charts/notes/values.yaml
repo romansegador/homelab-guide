@@ -4,6 +4,13 @@
 # The app's address. Covered by the wildcard DNS record and certificate from chapter 5.
 host: notes.lab.home.example.com
 
+# Sleep when idle (optional, needs Sablier): after `sessionDuration` without requests, the API, the
+# worker and the page scale to zero; the next visit shows a waiting page while they start. The
+# database keeps running.
+sleep:
+  enabled: false
+  sessionDuration: 30m
+
 # The images are private, so the cluster pulls them with a GitHub token from the secrets manager.
 imagePullSecret:
   name: registry-credentials

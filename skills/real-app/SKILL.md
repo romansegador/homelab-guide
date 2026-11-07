@@ -85,6 +85,25 @@ Files: `examples/08-real-app/app/` → the user's new private `notes` repository
   `0.2.0`. Revert it with GitHub's **Revert** button (another pull request).
 - `kubectl -n notes-prod get backups` shows a completed backup; `ContinuousArchiving` is `True`.
 
+## Optional: staging sleeps when idle
+
+Page `/real-app/sleep/`; files `examples/08-real-app/sleep/` (`apps/sablier.yaml`,
+`manifests/sablier/`, `manifests/https/traefik.yaml` = chapter 5's file + the `experimental.plugins.sablier`
+block). Then `sleep.enabled: true` in `charts/notes/values-staging.yaml` (the chart drops `replicas`,
+adds `sablierapp.dev/*` labels, a `sablier` Middleware and the Ingress annotation; the staging
+Application already ignores `/spec/replicas`). Never enable it for prod.
+
+- Pushing the Traefik change restarts Traefik (every app blips): get approval.
+- Verify: `kubectl -n kube-system logs deployment/traefik | grep -i plugin` → `Plugins loaded`;
+  idle 30 min (tab closed: the page polls every 2 s) → `kubectl -n notes-staging get deployments`
+  all `0/0`, Application still Synced/Healthy; a visit shows the waiting page, then the app (~15 s).
+- `plugin: unknown plugin type: sablier` in Traefik's log: Traefik hasn't restarted with the new
+  settings yet (check the `https` Application synced, then `rollout status deployment traefik`).
+- Sablier log `cannot retrieve groups … clusters.postgresql.cnpg.io is forbidden`: the read-only
+  CNPG rule is missing from `manifests/sablier/rbac.yaml`.
+- Staging never sleeps: an open browser tab keeps it awake; or ArgoCD resets replicas
+  (`ignoreDifferences` + `RespectIgnoreDifferences=true` missing in `apps/notes-staging.yaml`).
+
 ## Done when
 
 - [ ] All checks pass; staging updated itself and prod changed only through a pull request.

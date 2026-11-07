@@ -6,8 +6,11 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "notes.labels" . | nindent 4 }}
+    {{- include "notes.sleepLabels" . | nindent 4 }}
 spec:
+  {{- if not .Values.sleep.enabled }}
   replicas: 1
+  {{- end }}
   selector:
     matchLabels:
       app: web

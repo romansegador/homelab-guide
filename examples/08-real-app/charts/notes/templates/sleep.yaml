@@ -1,0 +1,21 @@
+{{- if .Values.sleep.enabled }}
+# The Traefik middleware the Ingress runs first. It asks Sablier to wake the group if it's asleep,
+# and shows a waiting page, which checks every few seconds, until the API, the worker and the page
+# are ready.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: sablier
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "notes.labels" . | nindent 4 }}
+spec:
+  plugin:
+    sablier:
+      sablierUrl: http://sablier.sablier:10000
+      group: {{ .Release.Name }}
+      sessionDuration: {{ .Values.sleep.sessionDuration }}
+      dynamic:
+        displayName: {{ .Release.Name }}
+        refreshFrequency: 3s
+{{- end }}

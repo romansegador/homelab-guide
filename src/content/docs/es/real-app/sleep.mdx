@@ -1,0 +1,139 @@
+---
+title: "Opcional: duerme cuando no se usa"
+description: Duerme staging tras 30 minutos sin visitas, y despiértalo con la siguiente, con Sablier y un plugin de Traefik. A ArgoCD se le indica que no toque el número de réplicas.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+:::note[Traducción asistida por IA]
+Esta página es una traducción asistida por IA del original en inglés, que es la referencia. Si
+ves un error, abre un issue o un PR.
+:::
+
+Staging funciona todo el día, pero solo lo miras de vez en cuando. Esta página opcional lo hace
+**dormir**: tras 30 minutos sin visitas, su API, su worker y su página se reducen a cero. La
+siguiente visita muestra una página de espera, y la aplicación vuelve en unos 15 segundos. Prod
+sigue funcionando.
+
+Ahorra memoria y CPU en una máquina pequeña, lo que importa cuando tienes varios entornos. Sáltate
+esta página si a tu máquina le sobra espacio.
+
+**Probado con:** Sablier 1.19.1 y su plugin de Traefik 1.4.0, en k3s v1.37.2+k3s1 (Traefik 3.7)
+con ArgoCD 3.6.1.
+
+## Algunas ideas primero
+
+### Cómo funciona
+```text
+browser ──▶ Traefik ──▶ sablier middleware ──asks──▶ Sablier ── is notes-staging awake?
+                              │                         │  no: scale api, worker, web to 1
+                              │                         │      and answer "not ready yet"
+                              ▼                         ▼
+               waiting page (checks every 3 s)  ...until every pod is ready
+                              │
+                              ▼
+                         the app, as usual.  30 minutes after the last request: scale to 0
+```
+
+- **Sablier** se ejecuta en el clúster. Sabe qué Deployments pueden dormir, por una etiqueta, y en
+  qué **grupo**: aquí `notes-staging`, así que una visita despierta juntos la API, el worker y la
+  página.
+- Un **plugin de Traefik** pregunta a Sablier en cada petición a staging. Cada petición también
+  renueva la **sesión** de staging. Cuando la sesión se acaba, Sablier reduce el grupo a cero.
+- **La base de datos sigue funcionando.** Sablier también puede dormir una base de datos de
+  CloudNativePG, pero tarda más en despertar, y Postgres usa poco mientras nadie la consulta.
+
+### ArgoCD y el número de réplicas
+ArgoCD mantiene el clúster igual que git, y git dice "1 réplica". Si no se le dice nada, ArgoCD
+despertaría staging en cuanto Sablier lo durmiera. Así que, con el modo dormir activado, el chart
+quita el número de réplicas de los Deployments, y la Application de staging le dice a ArgoCD que
+ignore ese campo.
+
+El razonamiento detrás de cada elección está en las [preguntas frecuentes](/es/start-here/faq/#capítulo-8--una-aplicación-real).
+
+## Antes de empezar
+
+- [ ] [Staging y prod están funcionando](/es/real-app/deploy/).
+
+## Prepáralo
+
+<Steps>
+
+1. **Añade los archivos a tu repositorio de configuración.** De
+   [`examples/08-real-app/sleep`](https://github.com/romansegador/homelab-guide/tree/main/examples/08-real-app/sleep),
+   copia en tu repositorio de configuración:
+   - `apps/sablier.yaml` y `manifests/sablier/`: Sablier, en su propio namespace.
+   - `manifests/https/traefik.yaml`: tu configuración de Traefik del capítulo 5 más el plugin.
+     Sustituye a tu archivo. Si cambiaste el tuyo después del capítulo 5, añade solo el bloque
+     `experimental:` al final.
+
+   En `apps/sablier.yaml`, sustituye `<YOUR_CONFIG_REPO_URL>`, como antes.
+
+2. **Activa el modo dormir en staging.** En `charts/notes/values-staging.yaml`, pon:
+
+   ```yaml
+   sleep:
+     enabled: true
+   ```
+
+   El chart y `apps/notes-staging.yaml` ya tienen lo que esto necesita, de la página anterior. Haz
+   commit y push a `main`.
+
+3. **Observa cómo Traefik carga el plugin.** k3s reinicia Traefik con la nueva configuración: todas
+   las aplicaciones dejan de responder unos segundos. Traefik descarga el plugin de su catálogo al
+   arrancar:
+
+   ```sh title="Portátil"
+   kubectl -n kube-system rollout status deployment traefik
+   kubectl -n kube-system logs deployment/traefik | grep -i plugin
+   ```
+
+   El registro dice `Plugins loaded.` con `sablier`. Después comprueba Sablier:
+
+   ```sh title="Portátil"
+   kubectl -n argocd get application sablier notes-staging
+   kubectl -n sablier get pods
+   ```
+
+   Las dos Applications están `Synced` y `Healthy`, y el pod `sablier` está `Running`.
+
+</Steps>
+
+## Compruébalo
+
+**Se duerme.** Según qué arrancó primero, Sablier o la nueva configuración de staging, puede que
+staging ya esté dormido. Si no lo está, Sablier espera a una primera visita antes de empezar a
+contar: abre `https://notes-staging.lab.home.example.com` una vez, y después **cierra la pestaña**.
+La página pide notas nuevas a la API cada dos segundos, así que una pestaña abierta mantiene
+staging despierto.
+
+Tras 30 minutos, staging está dormido:
+
+```sh title="Portátil"
+kubectl -n notes-staging get deployments
+kubectl -n argocd get application notes-staging
+```
+
+`api`, `web` y `worker` muestran `0/0`. El pod de la base de datos, `notes-staging-1`, sigue
+funcionando. La Application sigue `Synced` y `Healthy`: ArgoCD no está peleando con Sablier.
+
+Para probarlo sin esperar media hora, pon `sessionDuration: 3m` bajo `sleep:` en
+`values-staging.yaml` mientras pruebas, y quítalo después.
+
+**Se despierta.** Abre staging otra vez. Aparece una página de espera, y tras unos 15 segundos se
+convierte en la aplicación, con tus notas: están en la base de datos, que nunca durmió. Prod no se
+ha visto afectado:
+
+```sh title="Portátil"
+kubectl -n notes-prod get deployments
+```
+
+**Desactívalo.** Pon `sleep.enabled: false` en `values-staging.yaml`, y haz commit y push. El
+chart vuelve a poner el número de réplicas, y staging funciona todo el tiempo otra vez.
+
+## Antes de seguir
+
+- [ ] Staging se duerme tras 30 minutos sin visitas, y se despierta con la siguiente.
+- [ ] Prod funciona todo el tiempo.
+- [ ] `apps/sablier.yaml`, `manifests/sablier/` y el nuevo `manifests/https/traefik.yaml` están en
+      tu repositorio de configuración, con commit.

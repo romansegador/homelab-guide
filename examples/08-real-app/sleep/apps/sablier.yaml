@@ -1,0 +1,24 @@
+# Sablier: scales opted-in apps to zero after a while without requests, and wakes them on the next
+# one. Traefik asks it, through the sablier plugin (manifests/https/traefik.yaml), before routing a
+# request to an app whose Ingress uses a sablier Middleware. An app opts in with `sleep.enabled` in
+# its chart values (charts/notes).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sablier
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: <YOUR_CONFIG_REPO_URL>
+    targetRevision: main
+    path: manifests/sablier
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sablier
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

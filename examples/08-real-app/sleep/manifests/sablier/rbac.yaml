@@ -1,0 +1,38 @@
+# Sablier finds opted-in Deployments by label (sablierapp.dev/enable=true) in every namespace, and
+# scales them through the scale subresource.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sablier
+  namespace: sablier
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: sablier
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale", "statefulsets/scale"]
+    verbs: ["get", "update", "patch"]
+  # Read-only. Sablier can also put CloudNativePG databases to sleep, and when the operator from
+  # chapter 7 is installed, it lists them while it builds its groups: without this, every group
+  # fails to refresh. Without patch, it can't put a database to sleep.
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: sablier
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: sablier
+subjects:
+  - kind: ServiceAccount
+    name: sablier
+    namespace: sablier
