@@ -1,0 +1,57 @@
+{{- if .Values.schedule.enabled }}
+# A scheduled job (chapter 10, optional): every night it asks the API to add a note, which the
+# worker then finishes like any other. The job holds no database password: it makes one HTTP call
+# inside the namespace. Replace the call with whatever your own app needs done on a timetable.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nightly-note
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "notes.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.schedule.cron | quote }}
+  timeZone: {{ .Values.schedule.timeZone }}
+  # true = it never starts by itself, but you can still start a run by hand.
+  suspend: {{ .Values.schedule.suspend }}
+  # Never two runs at once, and never catch up on a run missed more than an hour ago.
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  # How many finished runs stay visible, with their logs.
+  successfulJobsHistoryLimit: {{ .Values.schedule.keepRuns }}
+  failedJobsHistoryLimit: {{ .Values.schedule.keepRuns }}
+  jobTemplate:
+    spec:
+      # A failed run isn't retried: it shows as failed, and the alert of the monitoring page fires.
+      backoffLimit: 0
+      activeDeadlineSeconds: 300
+      template:
+        metadata:
+          labels:
+            app: nightly-note
+            {{- include "notes.labels" . | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          securityContext:
+            {{- include "notes.podSecurity" . | nindent 12 }}
+            # The curl image's own user.
+            runAsUser: 100
+            runAsGroup: 101
+          containers:
+            - name: nightly-note
+              image: {{ .Values.schedule.image.repository }}:{{ .Values.schedule.image.tag }}
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -u
+                  code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 60 \
+                    -X POST -H 'Content-Type: application/json' \
+                    -d '{"body": "Nightly check"}' http://api/api/notes) || code=000
+                  echo "add note: HTTP $code"
+                  case "$code" in 2*) exit 0 ;; *) exit 1 ;; esac
+              resources:
+                requests: {cpu: 10m, memory: 16Mi}
+                limits: {memory: 64Mi}
+              securityContext:
+                {{- include "notes.containerSecurity" . | nindent 16 }}
+{{- end }}

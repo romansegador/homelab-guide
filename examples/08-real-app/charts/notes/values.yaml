@@ -15,6 +15,21 @@ sleep:
   enabled: false
   sessionDuration: 30m
 
+# A scheduled job (chapter 10, optional): adds a note every night. Off unless an environment
+# turns it on.
+schedule:
+  enabled: false
+  # true = it never starts by itself, but can still be run by hand.
+  suspend: false
+  cron: "0 3 * * *"
+  timeZone: Etc/UTC
+  # Finished runs kept visible, with their logs.
+  keepRuns: 5
+  # The job only needs an HTTP client.
+  image:
+    repository: docker.io/curlimages/curl
+    tag: 8.23.0
+
 # The images are private, so the cluster pulls them with a GitHub token from the secrets manager.
 imagePullSecret:
   name: registry-credentials

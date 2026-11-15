@@ -724,6 +724,12 @@ refresca sus grupos. Sin permiso para listarlos, cada refresco falla, para todos
 Sablier registra el error cada pocos segundos. El acceso de lectura basta para evitarlo. Sin
 `patch`, sigue sin poder dormir una base de datos.
 
+### Staging está dormido: ¿sigue recibiendo versiones nuevas?
+No hasta que despierta. Image Updater se salta una aplicación cuyos Deployments están reducidos a
+cero: su registro muestra `images_considered=0` para ella. Así que un staging dormido se queda en la
+etiqueta con la que se durmió, y pasa a la más nueva unos minutos después de la siguiente visita. No
+se pierde nada, pero no esperes que un push a `main` aparezca en un staging que nadie ha abierto.
+
 ### ¿Por qué decirle a ArgoCD que ignore el número de réplicas?
 Sablier cambia el número de réplicas, y ArgoCD devuelve el clúster a lo que dice git. Ganarían por
 turnos, y staging nunca seguiría dormido. Así que, con el modo dormir activado, el chart quita el
@@ -815,3 +821,98 @@ página). Lo que costaría dinero: más de 50 personas iniciando sesión con Acc
 guía no usa, como guardar los registros de Access más tiempo, reglas extra de limitación de
 peticiones, o balanceo de carga. Si añades aplicaciones, revisa primero las plazas: cada persona que
 inicia sesión cuenta una vez, use las aplicaciones que use.
+
+## Capítulo 10 · Operación diaria
+
+### ¿Por qué Headlamp para la página web?
+Es la interfaz web a la que apunta ahora el propio proyecto Kubernetes: su antiguo Dashboard se ha
+retirado. Se ejecuta en el clúster, no necesita base de datos, y muestra todo tipo de objetos,
+incluidas las ejecuciones de un CronJob. Alternativas:
+- **La interfaz de ArgoCD** que ya tienes muestra los mismos objetos, pero solo de las aplicaciones
+  que gestiona ArgoCD, y está pensada para el estado de sincronización, no para explorar.
+- **k9s** (capítulo 2) hace todo esto en un terminal. Mucha gente no necesita más.
+- **Aplicaciones de escritorio** como Lens o Freelens se ejecutan en tu portátil con tu kubeconfig.
+  No hay nada que instalar en el clúster, pero tampoco nada que abrir desde otro dispositivo.
+
+### ¿Por qué iniciar sesión con un token, y no con inicio de sesión único?
+Un token no necesita nada más instalado, y caduca solo. Headlamp también admite inicio de sesión
+único (OIDC), más cómodo si lo usan varias personas, pero necesita un proveedor de identidad y un
+cambio en la configuración del propio clúster para que Kubernetes acepte los inicios de sesión de
+ese proveedor. Es más de lo que este capítulo necesita.
+
+### ¿Por qué la cuenta de Headlamp es administradora del clúster?
+Es el valor por defecto del chart, y coincide con lo que ya tienes: tu `kubectl` también es
+administrador. Si quieres una página que solo pueda mirar, asocia la cuenta al rol `view` que trae
+Kubernetes (`clusterRoleBinding.clusterRoleName: view` en los valores del chart). Entonces no puede
+leer Secrets ni lanzar una tarea.
+
+### ¿Por qué un CronJob en el chart de la aplicación, y no un planificador aparte?
+La aplicación tiene un horario y una cosa que ejecutar. Un CronJob es parte de Kubernetes: nada que
+instalar, actualizar ni respaldar, y se despliega y versiona con la aplicación. Un planificador como
+Airflow, Dagu o Argo Workflows se gana su sitio cuando las tareas tienen muchos pasos que dependen
+unos de otros, necesitan reintentos por paso, o cuando quieres una página con meses de historial de
+ejecuciones. Puedes añadir uno más adelante: la tarea de aquí es una llamada HTTP, fácil de mover.
+
+### ¿Por qué la tarea llama a la API, y no ejecuta ella misma el código de la aplicación?
+Así el trabajo tiene un solo sitio. La API ya tiene el acceso a la base de datos, la configuración
+y las comprobaciones. Una tarea que ejecutara el código de la aplicación necesitaría la misma
+imagen, los mismos secretos y la misma configuración, sincronizados con la aplicación en cada
+versión. Una llamada también funciona igual desde tu portátil, lo que facilita probarla. El coste:
+la API debe estar en marcha, y una tarea larga necesita un tiempo de espera largo o una API que
+responda "empezado" y trabaje en segundo plano.
+
+### ¿Por qué no se reintenta una ejecución fallida?
+Porque la guía no puede saber si tu propia tarea se puede ejecutar dos veces sin riesgo. Una
+ejecución fallida que se queda como fallida es visible, y la página de monitorización avisa de
+ella. Si tu tarea se puede repetir sin daño, sube `backoffLimit`.
+
+### ¿Por qué staging tiene la tarea suspendida, y no sin ella?
+Para que la tarea esté desplegada y se pueda probar en staging antes de que prod la ejecute, sin
+una ejecución nocturna que nadie mira. Un CronJob suspendido sigue arrancando cuando se lo pides.
+Y si staging duerme cuando no se usa, una ejecución nocturna fallaría de todos modos: la tarea no
+puede despertar la aplicación.
+
+### ¿Por qué kube-prometheus-stack?
+Es la forma habitual de monitorizar Kubernetes: un chart con Prometheus, Alertmanager, Grafana y
+un conjunto grande de reglas y paneles ya hechos, así que un clúster nuevo queda vigilado con
+sensatez desde el primer minuto. Alternativas:
+- **VictoriaMetrics** (su chart `k8s-stack`) hace lo mismo con menos memoria. Buena elección en una
+  máquina muy pequeña; menos guías y ejemplos cuentan con él.
+- **Un servicio alojado** como el plan gratuito de Grafana Cloud guarda las métricas fuera de tu
+  casa, así que sigue funcionando cuando la máquina está caída. Tus métricas salen de tu red, y los
+  planes gratuitos tienen límites.
+- **Uptime Kuma** o similares solo comprueban que las direcciones responden. Mucho más sencillo, y
+  suficiente si lo único que quieres es "¿está arriba?".
+
+### ¿Por qué están desactivadas cuatro de las comprobaciones del chart?
+k3s ejecuta el planificador, el gestor de controladores, kube-proxy y etcd dentro de su único
+proceso, y no expone sus métricas donde el chart las busca. Activadas, cada una aparecería como
+"caída" y avisaría para siempre. Pierdes poco: en una sola máquina, si alguna se parase, el propio
+nodo aparecería como no sano.
+
+### ¿Por qué enviar las alertas a un canal de chat? ¿Puedo usar otra cosa?
+Un canal es un sitio que ya miras, guarda el historial, y un webhook se crea en un minuto.
+Alertmanager también puede enviar a Discord, Telegram, Microsoft Teams, correo, PagerDuty y
+cualquier webhook, y servicios como ntfy convierten un webhook en una notificación en el móvil.
+Cambia el bloque `receivers` en `apps/monitoring.yaml`; el resto queda igual.
+
+### ¿Por qué Prometheus y Alertmanager no tienen dirección?
+Ninguno tiene inicio de sesión. Cualquiera en tu red podría leer todas las métricas, y silenciar o
+borrar alertas. Grafana tiene inicio de sesión y muestra los mismos datos, así que la dirección es
+para él. Para la rara vez que mires los otros dos, basta con redirigir un puerto.
+
+### ¿Por qué guardar solo 15 días de métricas?
+Para "qué pasó anoche" y "¿esto empeora esta semana?", 15 días son de sobra, y caben en unos pocos
+gigabytes. Un historial largo necesita más disco o un segundo sistema hecho para ello.
+
+### ¿Quién me avisa cuando la propia máquina está caída?
+Nada dentro de ella puede. Usa una comprobación desde fuera: un servicio gratuito como
+healthchecks.io o UptimeRobot puede esperar una señal periódica de tu clúster y avisar cuando deja
+de llegar, o llamar a una dirección pública tuya (capítulo 9) y avisar cuando no responde. La
+alerta `Watchdog` existe para el primer patrón: está siempre activa, así que puedes dirigirla a un
+servicio así como latido.
+
+### ¿Y los registros (logs)?
+Los registros de un pod desaparecen con el pod. Guardarlos necesita otra pieza (por ejemplo Loki,
+que Grafana puede leer). La guía lo deja fuera por ahora: para unas pocas aplicaciones, los
+registros de las últimas ejecuciones, que Kubernetes conserva, cubren la mayoría de las preguntas.

@@ -1,0 +1,121 @@
+# Monitoring: Prometheus (collects and stores metrics), Alertmanager (sends alerts to a chat
+# channel) and Grafana (dashboards), from the kube-prometheus-stack chart. It comes with ready-made
+# dashboards and alert rules for the cluster, the machine and the workloads.
+#
+# The two secrets and your own alert rules are in manifests/monitoring (apps/monitoring-config.yaml).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 93.3.0
+    helm:
+      releaseName: monitoring
+      valuesObject:
+        # k3s runs these four inside its own single process and doesn't expose their metrics the
+        # way the chart expects. Left on, each would raise a permanent "is down" alert.
+        kubeEtcd: {enabled: false}
+        kubeControllerManager: {enabled: false}
+        kubeScheduler: {enabled: false}
+        kubeProxy: {enabled: false}
+
+        prometheus:
+          prometheusSpec:
+            # Read every alert rule and scrape target in the cluster, not only the chart's own.
+            ruleSelectorNilUsesHelmValues: false
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            probeSelectorNilUsesHelmValues: false
+            scrapeConfigSelectorNilUsesHelmValues: false
+            # Keep 15 days, or less if the data reaches 8 GB first. Stored on the data disk.
+            retention: 15d
+            retentionSize: 8GB
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 10Gi
+            resources:
+              requests: {cpu: 100m, memory: 512Mi}
+              limits: {memory: 2Gi}
+
+        alertmanager:
+          alertmanagerSpec:
+            # The chat webhook, mounted as a file from the Secret that
+            # manifests/monitoring/secrets.yaml copies from the secrets manager.
+            secrets: [alertmanager-slack]
+            # Remembers which alerts were already sent, across restarts.
+            storage:
+              volumeClaimTemplate:
+                spec:
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 1Gi
+            resources:
+              requests: {cpu: 10m, memory: 32Mi}
+              limits: {memory: 128Mi}
+          config:
+            route:
+              receiver: slack
+              group_by: [alertname, namespace]
+              group_wait: 30s
+              group_interval: 5m
+              # A problem that stays is repeated twice a day.
+              repeat_interval: 12h
+              routes:
+                # Two alerts that are always on by design: never send them.
+                - receiver: "null"
+                  matchers:
+                    - alertname =~ "Watchdog|InfoInhibitor"
+            receivers:
+              - name: "null"
+              - name: slack
+                slack_configs:
+                  - api_url_file: /etc/alertmanager/secrets/alertmanager-slack/webhook-url
+                    send_resolved: true
+                    title: '[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}{{ with .CommonLabels.namespace }} · {{ . }}{{ end }}'
+                    text: |-
+                      {{ range .Alerts }}• *{{ .Labels.severity }}* {{ if .Annotations.summary }}{{ .Annotations.summary }}{{ else }}{{ .Annotations.description }}{{ end }}
+                      {{ end }}
+
+        grafana:
+          # The admin login comes from the secrets manager (manifests/monitoring/secrets.yaml).
+          # Without this the chart would invent a new password on every sync.
+          admin:
+            existingSecret: grafana-admin
+            userKey: admin-user
+            passwordKey: admin-password
+          # HTTPS comes from Traefik's default wildcard certificate (chapter 5).
+          ingress:
+            enabled: true
+            ingressClassName: traefik
+            hosts:
+              - grafana.lab.home.example.com
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 512Mi}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # The chart's CRDs are too large for a client-side apply.
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

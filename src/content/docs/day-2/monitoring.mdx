@@ -1,0 +1,140 @@
+---
+title: Monitoring and alerts
+description: Install Prometheus, Alertmanager and Grafana with one chart. Get ready-made dashboards for the cluster, and a message in a chat channel when a job fails, a pod keeps crashing or a disk fills up.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+Until now, you find out that something broke when you look. This page makes the cluster tell you.
+At the end you'll have:
+- **Prometheus**, which collects numbers (metrics) from the cluster all the time and keeps 15
+  days of them,
+- **Grafana**, with ready-made dashboards for the machine, the cluster and each app,
+- **Alertmanager**, which sends a message to a chat channel when a rule matches: a failed job, a
+  pod that keeps crashing, a disk filling up.
+
+<Aside type="tip" title="Do it with an AI agent">
+The `day-2` skill covers this page. See [Use with an AI agent](/start-here/agents/).
+</Aside>
+
+**Tested with:** kube-prometheus-stack 93.3.0 (Prometheus Operator 0.95.2), on k3s v1.37.2+k3s1
+with ArgoCD 3.6.1 and External Secrets 2.14. Alerts sent to Slack.
+
+## A few ideas first
+
+### The pieces
+```text
+node, pods, Kubernetes ──metrics──▶ Prometheus ──rule matches──▶ Alertmanager ──▶ chat channel
+                                        │
+                                        └──▶ Grafana (dashboards)
+```
+
+One chart, **kube-prometheus-stack**, installs all of it, with dozens of alert rules and
+dashboards that people who run Kubernetes have refined for years. You add only what is
+specific to you: where alerts go, and rules about your own apps.
+
+### What it costs
+On the guide's machine it uses about **1.1 GB of memory** (Prometheus and Grafana around 500 MB
+each) and little CPU. It stores its data on the data disk: up to 10 GB for metrics.
+
+### Two secrets
+- The **chat webhook**: the address Alertmanager posts to. Anyone who has it can post in your
+  channel.
+- **Grafana's admin password.** You choose it.
+
+Both go in the secrets manager, as in every chapter since the fourth.
+
+### What it can't do
+It runs on the machine it watches. If the machine is off, nothing sends an alert. To know about
+that, you need a check from outside your home: several services do it for free, and the
+[FAQ](/start-here/faq/#chapter-10--day-2) names some.
+
+## Before you start
+
+- [ ] [External Secrets reads your secrets manager](/secrets/external-secrets/).
+- [ ] [The wildcard certificate and DNS record work](/https/certificates-and-dns/).
+- [ ] A chat workspace where you can add a webhook. The guide uses Slack.
+
+## Set it up
+
+<Steps>
+
+1. **Create a channel and its webhook.** In Slack, create a channel for alerts. Then create an
+   app at `https://api.slack.com/apps` (or open one you already have), turn on **Incoming
+   Webhooks**, choose **Add New Webhook to Workspace** and pick the channel. Slack shows a
+   webhook URL.
+
+2. **Store the two secrets.** In Bitwarden Secrets Manager, in the cluster's project, create:
+   - `alertmanager-slack-webhook`: the webhook URL,
+   - `grafana-admin-password`: a password you choose.
+
+3. **Add the files to your config repository.** From
+   [`examples/10-day-2`](https://github.com/romansegador/homelab-guide/tree/main/examples/10-day-2),
+   copy `apps/monitoring.yaml`, `apps/monitoring-config.yaml` and `manifests/monitoring/`.
+   Replace `lab.home.example.com` in `apps/monitoring.yaml`, and `<YOUR_CONFIG_REPO_URL>` in
+   `apps/monitoring-config.yaml`. Commit and push to `main`.
+
+4. **Wait for ArgoCD.** The first sync takes a couple of minutes.
+
+   ```sh title="Laptop"
+   kubectl -n argocd get application monitoring monitoring-config
+   kubectl -n monitoring get externalsecret
+   kubectl -n monitoring get pods
+   ```
+
+   Both Applications are `Synced` and `Healthy`, both secrets are `SecretSynced`, and six pods
+   are `Running`: Prometheus, Alertmanager, Grafana, the operator, and two that collect metrics.
+
+</Steps>
+
+## Check it
+
+**An alert reaches the channel.** Send a test alert:
+
+```sh title="Laptop"
+kubectl -n monitoring exec alertmanager-monitoring-kube-prometheus-alertmanager-0 \
+  -c alertmanager -- amtool alert add TestAlert severity=info \
+  --annotation=summary=test --alertmanager.url=http://localhost:9093
+```
+
+Within a minute, a message `[FIRING:1] TestAlert` appears in the channel. A few minutes later a
+`[RESOLVED]` message follows.
+
+**Nothing real is firing.** List the active alerts:
+
+```sh title="Laptop"
+kubectl -n monitoring exec alertmanager-monitoring-kube-prometheus-alertmanager-0 \
+  -c alertmanager -- amtool alert query --alertmanager.url=http://localhost:9093
+```
+
+You see `Watchdog`, and your test alert until it clears. `Watchdog` is always on by design: it
+proves the chain works, and the settings never send it to the channel.
+
+**Grafana shows the cluster.** Open `https://grafana.lab.home.example.com` and log in as `admin`
+with the password you stored. Under **Dashboards**, open *Node Exporter / Nodes* for the
+machine's CPU, memory and disks, and *Kubernetes / Compute Resources / Namespace (Pods)* for what
+each app uses.
+
+**A failed job alerts.** If you did the [scheduled job page](/day-2/scheduled-jobs/), a failed
+run raises `KubeJobFailed` after about 15 minutes. The alert stays on, repeated every 12 hours, until
+you delete the failed Job. The file `manifests/monitoring/rules.yaml` adds one rule of your own,
+`ScheduledJobMissed`: the nightly job has not succeeded for 26 hours where its timetable is on.
+
+<Aside type="note" title="Prometheus and Alertmanager have no address">
+Neither has a login of its own, so the example gives them no address on your network. When you
+want their own pages, forward a port:
+
+```sh title="Laptop"
+kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090
+```
+
+Then open `http://localhost:9090`. For Alertmanager, use
+`svc/monitoring-kube-prometheus-alertmanager` and port `9093`.
+</Aside>
+
+## Before you move on
+
+- [ ] A test alert arrives in your channel, and a resolved message follows.
+- [ ] Grafana opens with the stored password and shows the node's dashboard.
+- [ ] `apps/monitoring.yaml`, `apps/monitoring-config.yaml` and `manifests/monitoring/` are
+      committed in your config repository.

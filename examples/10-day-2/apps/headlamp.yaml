@@ -1,0 +1,44 @@
+# Headlamp: a web page for looking around the cluster (workloads, scheduled jobs and their runs,
+# logs, events) and for starting a job by hand. Reachable on your network only.
+#
+# Logging in needs a token. The chart creates an account that is a cluster administrator; make a
+# token for it that lasts a day with
+#   kubectl -n headlamp create token headlamp --duration=24h
+# Nothing is stored: when the token expires, make another.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: headlamp
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://kubernetes-sigs.github.io/headlamp
+    chart: headlamp
+    targetRevision: 0.46.0
+    helm:
+      valuesObject:
+        # HTTPS comes from Traefik's default wildcard certificate (chapter 5).
+        ingress:
+          enabled: true
+          ingressClassName: traefik
+          hosts:
+            - host: headlamp.lab.home.example.com
+              paths:
+                - path: /
+                  type: Prefix
+        resources:
+          requests: {cpu: 20m, memory: 64Mi}
+          limits: {memory: 256Mi}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: headlamp
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

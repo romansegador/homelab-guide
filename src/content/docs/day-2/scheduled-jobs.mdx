@@ -1,0 +1,127 @@
+---
+title: A scheduled job
+description: Run something on a timetable with a Kubernetes CronJob in the app's chart. The job only calls the app's API, so it holds no passwords. See its runs, start one by hand, and pause it in staging.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+Most real apps have something that must happen on a timetable: fetch new data every morning, send
+a summary, clean up old rows. This page adds one to the notes app: every night, a job adds a note,
+and the worker finishes it like any other.
+
+Kubernetes has this built in. A **CronJob** starts a **Job** on a timetable, and each Job runs a
+pod until it finishes. Nothing new to install.
+
+<Aside type="tip" title="Do it with an AI agent">
+The `day-2` skill covers this page. See [Use with an AI agent](/start-here/agents/).
+</Aside>
+
+**Tested with:** k3s v1.37.2+k3s1 with ArgoCD 3.6.1, and the `curlimages/curl` 8.23.0 image.
+
+## A few ideas first
+
+### The job calls the app, it doesn't do the work
+```text
+CronJob "nightly-note"  ──03:00──▶  Job  ──▶  pod (curl)  ──POST /api/notes──▶  api
+                                                                                 │
+                                                             worker finishes it ◀┘
+```
+
+The job's pod runs one command: an HTTP call to the API, inside the namespace. The app does the
+work, with the database access it already has. So the job needs no database password, no copy of
+the app's settings, and no image of its own: any small image with an HTTP client is enough.
+
+### What the settings mean
+- **One run at a time.** If a run is still going when the next is due, the next is skipped.
+- **No automatic retry.** A run that fails stays failed, so you see it (and the
+  [monitoring page](/day-2/monitoring/) alerts on it). For a job that is safe to repeat, you
+  could allow retries instead.
+- **A time zone.** The timetable is read in the zone you set, so "03:00" stays 03:00 when the
+  clocks change.
+- **Suspended.** A suspended CronJob never starts by itself, but you can still start a run by
+  hand. That fits staging: the job is there to test, without running every night.
+- **The last 5 runs stay visible**, with their logs. Older ones are removed.
+
+The reasoning behind each choice is in the [FAQ](/start-here/faq/#chapter-10--day-2).
+
+## Before you start
+
+- [ ] [Staging and prod are running](/real-app/deploy/).
+
+## Set it up
+
+<Steps>
+
+1. **Update the chart, if you copied it before this page existed.** From
+   [`examples/08-real-app/charts/notes`](https://github.com/romansegador/homelab-guide/tree/main/examples/08-real-app/charts/notes),
+   copy `templates/schedule.yaml` into your config repository's `charts/notes/templates/`, and
+   copy the `schedule:` block of `values.yaml` into your `charts/notes/values.yaml`.
+
+2. **Turn it on for prod.** In `charts/notes/values-prod.yaml`, add:
+
+   ```yaml
+   schedule:
+     enabled: true
+     timeZone: Europe/Berlin
+   ```
+
+   Use your own time zone. The default timetable is `0 3 * * *`: every day at 03:00.
+
+3. **Turn it on for staging, suspended.** In `charts/notes/values-staging.yaml`, add:
+
+   ```yaml
+   schedule:
+     enabled: true
+     suspend: true
+   ```
+
+   Commit and push to `main`.
+
+4. **Wait for ArgoCD.**
+
+   ```sh title="Laptop"
+   kubectl -n notes-prod get cronjob
+   kubectl -n notes-staging get cronjob
+   ```
+
+   Both show `nightly-note`. `SUSPEND` is `False` in prod and `True` in staging.
+
+</Steps>
+
+## Check it
+
+**Start a run by hand**, without waiting for 03:00:
+
+```sh title="Laptop"
+kubectl -n notes-prod create job --from=cronjob/nightly-note nightly-note-manual-1
+kubectl -n notes-prod get jobs
+kubectl -n notes-prod logs job/nightly-note-manual-1
+```
+
+The Job shows `Complete`, and its log is one line: `add note: HTTP 201`. Open the app: a note
+"Nightly check" is there, finished by the worker.
+
+**See a failure.** Start a run in staging while staging has no API to answer. If you set up
+[sleep when idle](/real-app/sleep/), wait until staging is asleep; otherwise skip this check.
+
+```sh title="Laptop"
+kubectl -n notes-staging create job --from=cronjob/nightly-note nightly-note-manual-1
+kubectl -n notes-staging get jobs
+```
+
+The Job shows `Failed`, and its log says `add note: HTTP 000`: nothing answered. The job calls
+the API directly, not through Traefik, so it can't wake a sleeping app. That's one more reason
+to keep the timetable off where an app sleeps. Remove the failed run:
+
+```sh title="Laptop"
+kubectl -n notes-staging delete job nightly-note-manual-1
+```
+
+**In the web page.** If you installed [Headlamp](/day-2/cluster-ui/), open **Workloads**, then
+**CronJobs**, then `nightly-note`: it lists the runs, and each run shows its pod and log.
+
+## Before you move on
+
+- [ ] Prod has a `nightly-note` CronJob that is not suspended; staging's is suspended.
+- [ ] A run started by hand in prod completes, and its note appears in the app.
+- [ ] The chart changes are committed in your config repository.

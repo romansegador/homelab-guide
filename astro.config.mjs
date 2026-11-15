@@ -98,6 +98,15 @@ export default defineConfig({
 					translations: { es: '9 · Salir a internet' },
 					items: [{ slug: 'going-public/tunnel' }],
 				},
+				{
+					label: '10 · Day 2',
+					translations: { es: '10 · Operación diaria' },
+					items: [
+						{ slug: 'day-2/cluster-ui' },
+						{ slug: 'day-2/scheduled-jobs' },
+						{ slug: 'day-2/monitoring' },
+					],
+				},
 			],
 		}),
 	],

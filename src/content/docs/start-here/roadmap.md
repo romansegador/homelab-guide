@@ -18,7 +18,7 @@ build progresses.
 | 7 | **A database** | Postgres managed by an operator, with off-site backups | ✅ Tested |
 | 8 | **A real app** | A multi-service app (web, API, worker, database) with automated image updates | ✅ Tested |
 | 9 | **Going public** | Exposing one app to the internet through a tunnel, with an access policy in front | ✅ Tested |
-| 10 | **Day 2** | Upgrades, backups and restores, monitoring basics, and a full rebuild from zero | Planned |
+| 10 | **Day 2** | A web page for the cluster, a scheduled job, monitoring with alerts; then upgrades, backups and restores, and a full rebuild from zero | 🚧 In progress: the cluster page, the scheduled job and monitoring are written (the scheduled job still needs a full run-through). Upgrades, restores and the rebuild are planned |
 
 ## Extras under consideration
 
