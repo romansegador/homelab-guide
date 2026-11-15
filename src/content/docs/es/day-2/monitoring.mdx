@@ -1,0 +1,147 @@
+---
+title: Monitorización y alertas
+description: Instala Prometheus, Alertmanager y Grafana con un solo chart. Obtén paneles ya hechos para el clúster, y un mensaje en un canal de chat cuando una tarea falla, un pod no deja de reiniciarse o un disco se llena.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+:::note[Traducción asistida por IA]
+Esta página es una traducción asistida por IA del original en inglés, que es la referencia. Si
+ves un error, abre un issue o un PR.
+:::
+
+Hasta ahora, te enteras de que algo se ha roto cuando miras. Esta página hace que el clúster te
+avise. Al final tendrás:
+- **Prometheus**, que recoge números (métricas) del clúster continuamente y guarda 15 días de
+  ellos,
+- **Grafana**, con paneles ya hechos para la máquina, el clúster y cada aplicación,
+- **Alertmanager**, que envía un mensaje a un canal de chat cuando se cumple una regla: una tarea
+  fallida, un pod que no deja de reiniciarse, un disco que se llena.
+
+<Aside type="tip" title="Hazlo con un agente de IA">
+La skill `day-2` cubre esta página. Consulta [Usar con un agente de IA](/es/start-here/agents/).
+</Aside>
+
+**Probado con:** kube-prometheus-stack 93.3.0 (Prometheus Operator 0.95.2), en k3s v1.37.2+k3s1
+con ArgoCD 3.6.1 y External Secrets 2.14. Alertas enviadas a Slack.
+
+## Algunas ideas primero
+
+### Las piezas
+```text
+node, pods, Kubernetes ──metrics──▶ Prometheus ──rule matches──▶ Alertmanager ──▶ chat channel
+                                        │
+                                        └──▶ Grafana (dashboards)
+```
+
+Un solo chart, **kube-prometheus-stack**, lo instala todo, con decenas de reglas de alerta y de
+paneles que quienes operan Kubernetes llevan años afinando. Tú añades solo lo que es tuyo: adónde
+van las alertas, y reglas sobre tus propias aplicaciones.
+
+### Lo que cuesta
+En la máquina de la guía usa alrededor de **1,1 GB de memoria** (Prometheus y Grafana unos 500 MB
+cada uno) y poca CPU. Guarda sus datos en el disco de datos: hasta 10 GB para métricas.
+
+### Dos secretos
+- El **webhook del chat**: la dirección a la que publica Alertmanager. Quien la tenga puede
+  publicar en tu canal.
+- **La contraseña de administrador de Grafana.** La eliges tú.
+
+Los dos van al gestor de secretos, como en todos los capítulos desde el cuarto.
+
+### Lo que no puede hacer
+Se ejecuta en la máquina que vigila. Si la máquina está apagada, nada envía una alerta. Para
+enterarte de eso necesitas una comprobación desde fuera de casa: varios servicios lo hacen gratis,
+y las [preguntas frecuentes](/es/start-here/faq/#capítulo-10--operación-diaria) nombran algunos.
+
+## Antes de empezar
+
+- [ ] [External Secrets lee tu gestor de secretos](/es/secrets/external-secrets/).
+- [ ] [El certificado comodín y el registro DNS funcionan](/es/https/certificates-and-dns/).
+- [ ] Un espacio de chat donde puedas añadir un webhook. La guía usa Slack.
+
+## Prepáralo
+
+<Steps>
+
+1. **Crea un canal y su webhook.** En Slack, crea un canal para las alertas. Después crea una
+   aplicación en `https://api.slack.com/apps` (o abre una que ya tengas), activa **Incoming
+   Webhooks**, elige **Add New Webhook to Workspace** y selecciona el canal. Slack muestra una URL
+   de webhook.
+
+2. **Guarda los dos secretos.** En Bitwarden Secrets Manager, en el proyecto del clúster, crea:
+   - `alertmanager-slack-webhook`: la URL del webhook,
+   - `grafana-admin-password`: una contraseña que elijas.
+
+3. **Añade los ficheros a tu repositorio de configuración.** Desde
+   [`examples/10-day-2`](https://github.com/romansegador/homelab-guide/tree/main/examples/10-day-2),
+   copia `apps/monitoring.yaml`, `apps/monitoring-config.yaml` y `manifests/monitoring/`.
+   Sustituye `lab.home.example.com` en `apps/monitoring.yaml`, y `<YOUR_CONFIG_REPO_URL>` en
+   `apps/monitoring-config.yaml`. Haz commit y push a `main`.
+
+4. **Espera a ArgoCD.** La primera sincronización tarda un par de minutos.
+
+   ```sh title="Portátil"
+   kubectl -n argocd get application monitoring monitoring-config
+   kubectl -n monitoring get externalsecret
+   kubectl -n monitoring get pods
+   ```
+
+   Las dos Applications están `Synced` y `Healthy`, los dos secretos están `SecretSynced`, y hay
+   seis pods `Running`: Prometheus, Alertmanager, Grafana, el operador, y dos que recogen
+   métricas.
+
+</Steps>
+
+## Compruébalo
+
+**Una alerta llega al canal.** Envía una alerta de prueba:
+
+```sh title="Portátil"
+kubectl -n monitoring exec alertmanager-monitoring-kube-prometheus-alertmanager-0 \
+  -c alertmanager -- amtool alert add TestAlert severity=info \
+  --annotation=summary=test --alertmanager.url=http://localhost:9093
+```
+
+En menos de un minuto aparece en el canal un mensaje `[FIRING:1] TestAlert`. Unos minutos después
+le sigue un mensaje `[RESOLVED]`.
+
+**No hay nada real activo.** Lista las alertas activas:
+
+```sh title="Portátil"
+kubectl -n monitoring exec alertmanager-monitoring-kube-prometheus-alertmanager-0 \
+  -c alertmanager -- amtool alert query --alertmanager.url=http://localhost:9093
+```
+
+Ves `Watchdog`, y tu alerta de prueba hasta que se resuelve. `Watchdog` está siempre activa a
+propósito: demuestra que la cadena funciona, y la configuración nunca la envía al canal.
+
+**Grafana muestra el clúster.** Abre `https://grafana.lab.home.example.com` e inicia sesión como
+`admin` con la contraseña que guardaste. En **Dashboards**, abre *Node Exporter / Nodes* para la
+CPU, la memoria y los discos de la máquina, y *Kubernetes / Compute Resources / Namespace (Pods)*
+para lo que usa cada aplicación.
+
+**Una tarea fallida avisa.** Si hiciste la [página de la tarea programada](/es/day-2/scheduled-jobs/),
+una ejecución fallida activa `KubeJobFailed` tras unos 15 minutos. La alerta sigue activa, repetida
+cada 12 horas, hasta que borras el Job fallido. El fichero `manifests/monitoring/rules.yaml` añade
+una regla tuya, `ScheduledJobMissed`: la tarea nocturna lleva 26 horas sin terminar bien donde su
+horario está activado.
+
+<Aside type="note" title="Prometheus y Alertmanager no tienen dirección">
+Ninguno tiene inicio de sesión propio, así que el ejemplo no les da una dirección en tu red.
+Cuando quieras ver sus propias páginas, redirige un puerto:
+
+```sh title="Portátil"
+kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090
+```
+
+Después abre `http://localhost:9090`. Para Alertmanager, usa
+`svc/monitoring-kube-prometheus-alertmanager` y el puerto `9093`.
+</Aside>
+
+## Antes de seguir
+
+- [ ] Una alerta de prueba llega a tu canal, y le sigue un mensaje de resuelta.
+- [ ] Grafana se abre con la contraseña guardada y muestra el panel del nodo.
+- [ ] `apps/monitoring.yaml`, `apps/monitoring-config.yaml` y `manifests/monitoring/` están en un
+      commit de tu repositorio de configuración.

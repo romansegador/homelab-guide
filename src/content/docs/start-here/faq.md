@@ -670,6 +670,12 @@ refreshes its groups. Without permission to list them, every refresh fails, for 
 Sablier logs the error every few seconds. Read access is enough to stop that. Without `patch`, it
 still can't put a database to sleep.
 
+### Staging is asleep: does it still get new versions?
+Not until it wakes. Image Updater skips an app whose Deployments are scaled to zero: its log shows
+`images_considered=0` for it. So a sleeping staging stays on the tag it fell asleep with, and moves
+to the newest one a few minutes after the next visit. Nothing is lost, but don't expect a push to
+`main` to show up in a staging nobody has opened.
+
 ### Why tell ArgoCD to ignore the replica count?
 Sablier changes the number of replicas, and ArgoCD changes the cluster back to what git says. Both
 would win in turn, and staging would never stay asleep. So, with sleep on, the chart leaves the
@@ -760,3 +766,94 @@ What would cost money: more than 50 people logging in through Access, and featur
 doesn't use, such as Access logs kept for longer, extra rate-limiting rules, or load balancing.
 If you add apps, check the seats first: each person who logs in counts once, whatever number of
 apps they use.
+
+## Chapter 10 · Day 2
+
+### Why Headlamp for the web page?
+It's the web UI the Kubernetes project itself now points to: its older Dashboard has been retired.
+It runs in the cluster, needs no database, and shows every kind of object, including the runs of a
+CronJob. Alternatives:
+- **The ArgoCD UI** you already have shows the same objects, but only for apps ArgoCD manages, and
+  it's built around sync status, not around browsing.
+- **k9s** (chapter 2) does all of this in a terminal. Many people never need more.
+- **Desktop apps** such as Lens or Freelens run on your laptop with your kubeconfig. Nothing to
+  install in the cluster, but nothing to open from another device either.
+
+### Why log in with a token, and not single sign-on?
+A token needs nothing else installed, and it expires by itself. Headlamp also supports single
+sign-on (OIDC), which is nicer if several people use it, but it needs a login provider and a change
+to the cluster's own settings so Kubernetes accepts that provider's logins. That's more than this
+chapter needs.
+
+### Why is the Headlamp account a cluster administrator?
+It's the chart's default, and it matches what you already have: your `kubectl` is an administrator
+too. If you want a page that can only look, bind the account to the built-in `view` role instead
+(`clusterRoleBinding.clusterRoleName: view` in the chart's values). It then can't read Secrets or
+start a job.
+
+### Why a CronJob in the app's chart, and not a separate scheduler?
+The app has one timetable and one thing to run. A CronJob is part of Kubernetes: nothing to
+install, upgrade or back up, and it's deployed and versioned with the app. A scheduler such as
+Airflow, Dagu or Argo Workflows earns its place when jobs have many steps that depend on each
+other, need retries per step, or when you want a page with months of run history. You can add one
+later: the job here is one HTTP call, easy to move.
+
+### Why does the job call the API, and not run the app's code itself?
+Then the work has one home. The API already has the database access, the settings and the checks.
+A job that ran the app's code would need the same image, the same secrets and the same settings,
+kept in step with the app on every release. A call also works the same from your laptop, which
+makes it easy to test. The cost: the API must be running, and a long task needs a long timeout or
+an API that answers "started" and works in the background.
+
+### Why isn't a failed run retried?
+Because the guide can't know whether your own job is safe to run twice. A failed run that stays
+failed is visible, and the monitoring page alerts on it. If your job can be repeated without harm,
+raise `backoffLimit`.
+
+### Why does staging get the job suspended, and not left out?
+So the job is deployed and can be tested in staging before prod runs it, without a nightly run
+nobody looks at. A suspended CronJob still starts when you ask. And if staging sleeps when idle, a
+nightly run would fail anyway: the job can't wake the app.
+
+### Why kube-prometheus-stack?
+It's the usual way to monitor Kubernetes: one chart with Prometheus, Alertmanager, Grafana and a
+large set of ready-made rules and dashboards, so a new cluster is watched sensibly from the first
+minute. Alternatives:
+- **VictoriaMetrics** (its `k8s-stack` chart) does the same with less memory. A good choice on a
+  very small machine; fewer guides and examples assume it.
+- **A hosted service** such as Grafana Cloud's free plan stores metrics outside your home, so it
+  still works when the machine is down. Your metrics leave your network, and free plans have limits.
+- **Uptime Kuma** or similar only checks that addresses answer. Much simpler, and enough if all you
+  want is "is it up?".
+
+### Why are four of the chart's checks switched off?
+k3s runs the scheduler, the controller manager, kube-proxy and etcd inside its own single process,
+and doesn't expose their metrics where the chart looks. Left on, each would show as "down" and
+alert forever. You lose little: on one machine, if any of them stopped, the node itself would
+show as unhealthy.
+
+### Why send alerts to a chat channel? Can I use something else?
+A channel is somewhere you already look, it keeps the history, and a webhook takes a minute to
+create. Alertmanager can also send to Discord, Telegram, Microsoft Teams, email, PagerDuty and
+any webhook, and services such as ntfy turn a webhook into a phone notification. Change the
+`receivers` block in `apps/monitoring.yaml`; the rest stays the same.
+
+### Why do Prometheus and Alertmanager have no address?
+Neither has a login. Anyone on your network could read every metric, and silence or delete alerts.
+Grafana has a login and shows the same data, so it gets the address. For the rare look at the
+other two, a port-forward is enough.
+
+### Why keep only 15 days of metrics?
+For "what happened last night" and "is this getting worse this week", 15 days is plenty, and it
+fits in a few gigabytes. Long-term history needs more disk or a second system built for it.
+
+### Who tells me when the machine itself is down?
+Nothing inside it can. Use a check from outside: a free service such as healthchecks.io or
+UptimeRobot can expect a regular signal from your cluster and alert when it stops, or call a public
+address of yours (chapter 9) and alert when it doesn't answer. The `Watchdog` alert exists for the
+first pattern: it's always on, so you can route it to such a service as a heartbeat.
+
+### What about logs?
+A pod's logs disappear with the pod. Keeping them needs another piece (for example Loki, which
+Grafana can read). The guide leaves it out for now: for a few apps, the logs of the last runs,
+which Kubernetes keeps, cover most questions.

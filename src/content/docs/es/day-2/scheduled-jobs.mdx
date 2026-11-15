@@ -1,0 +1,137 @@
+---
+title: Una tarea programada
+description: Ejecuta algo con un horario mediante un CronJob de Kubernetes en el chart de la aplicación. La tarea solo llama a la API de la aplicación, así que no guarda contraseñas. Mira sus ejecuciones, lanza una a mano y páusala en staging.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+:::note[Traducción asistida por IA]
+Esta página es una traducción asistida por IA del original en inglés, que es la referencia. Si
+ves un error, abre un issue o un PR.
+:::
+
+Casi todas las aplicaciones reales tienen algo que debe ocurrir con un horario: traer datos nuevos
+cada mañana, enviar un resumen, borrar filas antiguas. Esta página añade una a la aplicación de
+notas: cada noche, una tarea añade una nota, y el worker la termina como cualquier otra.
+
+Kubernetes lo trae de serie. Un **CronJob** lanza un **Job** según un horario, y cada Job ejecuta
+un pod hasta que termina. No hay nada nuevo que instalar.
+
+<Aside type="tip" title="Hazlo con un agente de IA">
+La skill `day-2` cubre esta página. Consulta [Usar con un agente de IA](/es/start-here/agents/).
+</Aside>
+
+**Probado con:** k3s v1.37.2+k3s1 con ArgoCD 3.6.1, y la imagen `curlimages/curl` 8.23.0.
+
+## Algunas ideas primero
+
+### La tarea llama a la aplicación, no hace el trabajo
+```text
+CronJob "nightly-note"  ──03:00──▶  Job  ──▶  pod (curl)  ──POST /api/notes──▶  api
+                                                                                 │
+                                                             worker finishes it ◀┘
+```
+
+El pod de la tarea ejecuta un solo comando: una llamada HTTP a la API, dentro del namespace. La
+aplicación hace el trabajo, con el acceso a la base de datos que ya tiene. Así la tarea no necesita
+contraseña de la base de datos, ni una copia de la configuración de la aplicación, ni una imagen
+propia: basta cualquier imagen pequeña con un cliente HTTP.
+
+### Qué significan los ajustes
+- **Una ejecución a la vez.** Si una ejecución sigue en marcha cuando toca la siguiente, la
+  siguiente se salta.
+- **Sin reintento automático.** Una ejecución que falla se queda como fallida, para que la veas (y
+  la [página de monitorización](/es/day-2/monitoring/) avisa de ella). Para una tarea que se puede
+  repetir sin riesgo, podrías permitir reintentos.
+- **Una zona horaria.** El horario se lee en la zona que indiques, así que "03:00" sigue siendo
+  las 03:00 cuando cambia la hora.
+- **Suspendido.** Un CronJob suspendido nunca arranca solo, pero puedes lanzar una ejecución a
+  mano. Encaja con staging: la tarea está ahí para probarla, sin ejecutarse cada noche.
+- **Las últimas 5 ejecuciones siguen visibles**, con sus registros. Las más antiguas se eliminan.
+
+El razonamiento detrás de cada elección está en las [preguntas frecuentes](/es/start-here/faq/#capítulo-10--operación-diaria).
+
+## Antes de empezar
+
+- [ ] [Staging y prod están funcionando](/es/real-app/deploy/).
+
+## Prepáralo
+
+<Steps>
+
+1. **Actualiza el chart, si lo copiaste antes de que existiera esta página.** Desde
+   [`examples/08-real-app/charts/notes`](https://github.com/romansegador/homelab-guide/tree/main/examples/08-real-app/charts/notes),
+   copia `templates/schedule.yaml` a `charts/notes/templates/` de tu repositorio de configuración,
+   y copia el bloque `schedule:` de `values.yaml` a tu `charts/notes/values.yaml`.
+
+2. **Actívala en prod.** En `charts/notes/values-prod.yaml`, añade:
+
+   ```yaml
+   schedule:
+     enabled: true
+     timeZone: Europe/Berlin
+   ```
+
+   Usa tu propia zona horaria. El horario por defecto es `0 3 * * *`: todos los días a las 03:00.
+
+3. **Actívala en staging, suspendida.** En `charts/notes/values-staging.yaml`, añade:
+
+   ```yaml
+   schedule:
+     enabled: true
+     suspend: true
+   ```
+
+   Haz commit y push a `main`.
+
+4. **Espera a ArgoCD.**
+
+   ```sh title="Portátil"
+   kubectl -n notes-prod get cronjob
+   kubectl -n notes-staging get cronjob
+   ```
+
+   Los dos muestran `nightly-note`. `SUSPEND` es `False` en prod y `True` en staging.
+
+</Steps>
+
+## Compruébalo
+
+**Lanza una ejecución a mano**, sin esperar a las 03:00:
+
+```sh title="Portátil"
+kubectl -n notes-prod create job --from=cronjob/nightly-note nightly-note-manual-1
+kubectl -n notes-prod get jobs
+kubectl -n notes-prod logs job/nightly-note-manual-1
+```
+
+El Job muestra `Complete`, y su registro es una línea: `add note: HTTP 201`. Abre la aplicación:
+hay una nota "Nightly check", terminada por el worker.
+
+**Mira un fallo.** Lanza una ejecución en staging cuando staging no tiene una API que responda. Si
+configuraste [dormir cuando no se usa](/es/real-app/sleep/), espera a que staging esté dormido; si
+no, sáltate esta comprobación.
+
+```sh title="Portátil"
+kubectl -n notes-staging create job --from=cronjob/nightly-note nightly-note-manual-1
+kubectl -n notes-staging get jobs
+```
+
+El Job muestra `Failed`, y su registro dice `add note: HTTP 000`: no respondió nadie. La tarea
+llama a la API directamente, no a través de Traefik, así que no puede despertar una aplicación
+dormida. Es una razón más para dejar el horario desactivado donde una aplicación duerme. Elimina
+la ejecución fallida:
+
+```sh title="Portátil"
+kubectl -n notes-staging delete job nightly-note-manual-1
+```
+
+**En la página web.** Si instalaste [Headlamp](/es/day-2/cluster-ui/), abre **Workloads**, después
+**CronJobs**, después `nightly-note`: lista las ejecuciones, y cada una muestra su pod y su
+registro.
+
+## Antes de seguir
+
+- [ ] Prod tiene un CronJob `nightly-note` que no está suspendido; el de staging está suspendido.
+- [ ] Una ejecución lanzada a mano en prod termina, y su nota aparece en la aplicación.
+- [ ] Los cambios del chart están en un commit de tu repositorio de configuración.

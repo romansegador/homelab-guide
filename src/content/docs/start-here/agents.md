@@ -51,3 +51,4 @@ Give your agent one of those URLs and ask it to guide you through a chapter.
 | 7 · A database | `database` |
 | 8 · A real app | `real-app` |
 | 9 · Going public | `going-public` |
+| 10 · Day 2 | `day-2` |

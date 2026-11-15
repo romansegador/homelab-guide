@@ -1,0 +1,84 @@
+---
+title: Una página web para el clúster
+description: Instala Headlamp, una interfaz web para Kubernetes, para ver cargas de trabajo, eventos y registros, y las ejecuciones de una tarea programada. Se inicia sesión con un token de corta duración.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+:::note[Traducción asistida por IA]
+Esta página es una traducción asistida por IA del original en inglés, que es la referencia. Si
+ves un error, abre un issue o un PR.
+:::
+
+Hasta ahora miras el clúster con `kubectl` y `k9s`. Esta página añade **Headlamp**, una página web
+para lo mismo: qué está funcionando, qué ha fallado y por qué, los registros de un pod, las
+ejecuciones de una tarea programada. Solo es accesible desde tu red.
+
+No cambia nada de cómo despliegas: ArgoCD sigue haciendo que el clúster coincida con git. Headlamp
+es para mirar, y para alguna acción manual de vez en cuando.
+
+<Aside type="tip" title="Hazlo con un agente de IA">
+La skill `day-2` cubre esta página. Consulta [Usar con un agente de IA](/es/start-here/agents/).
+</Aside>
+
+**Probado con:** Headlamp 0.46.0 (chart 0.46.0), en k3s v1.37.2+k3s1 con ArgoCD 3.6.1.
+
+## Algunas ideas primero
+
+### Cómo inicias sesión
+Headlamp no tiene usuarios propios. Pide un **token**, y después hace solo lo que ese token tiene
+permitido. El chart crea una cuenta llamada `headlamp` que es **administradora del clúster**, y tú
+creas un token para ella cuando lo necesitas. El token dura lo que indiques (un día, más abajo) y
+no se guarda en ningún sitio: cuando caduca, creas otro.
+
+<Aside type="caution">
+El token puede hacer todo lo que puede `kubectl`, incluido leer todos los Secrets. Trátalo como
+una contraseña mientras dure, y mantén Headlamp solo en tu red: no lo publiques por el túnel del
+capítulo 9.
+</Aside>
+
+El razonamiento detrás de cada elección está en las [preguntas frecuentes](/es/start-here/faq/#capítulo-10--operación-diaria).
+
+## Antes de empezar
+
+- [ ] [ArgoCD gestiona tu repositorio de configuración](/es/gitops/argocd/).
+- [ ] [El certificado comodín y el registro DNS funcionan](/es/https/certificates-and-dns/).
+
+## Prepáralo
+
+<Steps>
+
+1. **Añade el fichero a tu repositorio de configuración.** Desde
+   [`examples/10-day-2`](https://github.com/romansegador/homelab-guide/tree/main/examples/10-day-2),
+   copia `apps/headlamp.yaml` a la carpeta `apps/` de tu repositorio de configuración. En él,
+   sustituye `lab.home.example.com` por tu propio subdominio. Haz commit y push a `main`.
+
+2. **Espera a ArgoCD.**
+
+   ```sh title="Portátil"
+   kubectl -n argocd get application headlamp
+   kubectl -n headlamp get pods
+   ```
+
+   La Application está `Synced` y `Healthy`, y el pod `headlamp` está `Running`.
+
+3. **Crea un token e inicia sesión.**
+
+   ```sh title="Portátil"
+   kubectl -n headlamp create token headlamp --duration=24h
+   ```
+
+   Abre `https://headlamp.lab.home.example.com`, y pega el token donde lo pide.
+
+</Steps>
+
+## Compruébalo
+
+- La página del clúster muestra tu nodo.
+- **Workloads** lista los pods de todos los namespaces, igual que `kubectl get pods -A`.
+- Abre un pod de la aplicación de notas y mira sus **registros** (logs).
+
+## Antes de seguir
+
+- [ ] Headlamp se abre en su dirección de tu red y acepta un token.
+- [ ] `apps/headlamp.yaml` está en un commit de tu repositorio de configuración.

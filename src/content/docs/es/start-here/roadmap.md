@@ -23,7 +23,7 @@ actualiza a medida que avanza la construcción.
 | 7 | **Una base de datos** | Postgres gestionado por un operador, con copias de seguridad fuera de la máquina | ✅ Probado |
 | 8 | **Una aplicación real** | Una aplicación de varios servicios (web, API, proceso en segundo plano, base de datos) con actualización automática de imágenes | ✅ Probado |
 | 9 | **Salir a internet** | Exponer una aplicación a internet a través de un túnel, con una política de acceso delante | ✅ Probado |
-| 10 | **Operación diaria** | Actualizaciones, copias y restauraciones, monitorización básica y reconstrucción completa desde cero | Previsto |
+| 10 | **Operación diaria** | Una página web para el clúster, una tarea programada, monitorización con alertas; después actualizaciones, copias y restauraciones, y reconstrucción completa desde cero | 🚧 En curso: la página del clúster, la tarea programada y la monitorización están escritas (la tarea programada aún necesita un recorrido completo). Actualizaciones, restauraciones y reconstrucción están previstas |
 
 ## Extras en estudio
 

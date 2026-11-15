@@ -1,0 +1,24 @@
+# Your own alert rules, next to the chart's ready-made ones (which already cover a failed Job, a
+# pod that keeps crashing, a disk filling up, and the machine being unhealthy).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: scheduled-jobs
+  namespace: monitoring
+spec:
+  groups:
+    - name: scheduled-jobs
+      rules:
+        # A run that fails raises the chart's KubeJobFailed. This one covers the run that never
+        # happened at all: no successful run for 26 hours, in any environment whose schedule is
+        # switched on (a suspended one is ignored). It can only fire after a first successful run.
+        - alert: ScheduledJobMissed
+          expr: |
+            (time() - kube_cronjob_status_last_successful_time{cronjob="nightly-note"}) > 26 * 3600
+            and on (namespace, cronjob)
+            kube_cronjob_spec_suspend{cronjob="nightly-note"} == 0
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "The nightly job in {{ $labels.namespace }} has not succeeded for over 26 hours."

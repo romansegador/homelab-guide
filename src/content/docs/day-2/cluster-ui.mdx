@@ -1,0 +1,79 @@
+---
+title: A web page for the cluster
+description: Install Headlamp, a web UI for Kubernetes, to look at workloads, events and logs, and to see the runs of a scheduled job. It logs in with a short-lived token.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+So far you look at the cluster with `kubectl` and `k9s`. This page adds **Headlamp**, a web page
+for the same things: what is running, what failed and why, the logs of a pod, the runs of a
+scheduled job. It's reachable on your network only.
+
+It changes nothing about how you deploy: ArgoCD still makes the cluster match git. Headlamp is for
+looking, and for the occasional action by hand.
+
+<Aside type="tip" title="Do it with an AI agent">
+The `day-2` skill covers this page. See [Use with an AI agent](/start-here/agents/).
+</Aside>
+
+**Tested with:** Headlamp 0.46.0 (chart 0.46.0), on k3s v1.37.2+k3s1 with ArgoCD 3.6.1.
+
+## A few ideas first
+
+### How you log in
+Headlamp has no users of its own. It asks for a **token**, and then does only what that token is
+allowed to do. The chart creates an account named `headlamp` that is a **cluster administrator**,
+and you make a token for it when you need one. The token lasts as long as you say (a day, below)
+and is stored nowhere: when it expires, you make another.
+
+<Aside type="caution">
+The token can do everything `kubectl` can, including reading every Secret. Treat it like a
+password for the time it lasts, and keep Headlamp on your network only: don't publish it through
+the tunnel of chapter 9.
+</Aside>
+
+The reasoning behind each choice is in the [FAQ](/start-here/faq/#chapter-10--day-2).
+
+## Before you start
+
+- [ ] [ArgoCD manages your config repository](/gitops/argocd/).
+- [ ] [The wildcard certificate and DNS record work](/https/certificates-and-dns/).
+
+## Set it up
+
+<Steps>
+
+1. **Add the file to your config repository.** From
+   [`examples/10-day-2`](https://github.com/romansegador/homelab-guide/tree/main/examples/10-day-2),
+   copy `apps/headlamp.yaml` into your config repository's `apps/` folder. In it, replace
+   `lab.home.example.com` with your own subdomain. Commit and push to `main`.
+
+2. **Wait for ArgoCD.**
+
+   ```sh title="Laptop"
+   kubectl -n argocd get application headlamp
+   kubectl -n headlamp get pods
+   ```
+
+   The Application is `Synced` and `Healthy`, and the `headlamp` pod is `Running`.
+
+3. **Make a token and log in.**
+
+   ```sh title="Laptop"
+   kubectl -n headlamp create token headlamp --duration=24h
+   ```
+
+   Open `https://headlamp.lab.home.example.com`, and paste the token where it asks for one.
+
+</Steps>
+
+## Check it
+
+- The cluster page shows your node.
+- **Workloads** lists the pods of every namespace, the same as `kubectl get pods -A`.
+- Open a pod of the notes app and look at its **logs**.
+
+## Before you move on
+
+- [ ] Headlamp opens at its address on your network and accepts a token.
+- [ ] `apps/headlamp.yaml` is committed in your config repository.
