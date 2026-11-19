@@ -780,10 +780,9 @@ CronJob. Alternatives:
   install in the cluster, but nothing to open from another device either.
 
 ### Why log in with a token, and not single sign-on?
-A token needs nothing else installed, and it expires by itself. Headlamp also supports single
-sign-on (OIDC), which is nicer if several people use it, but it needs a login provider and a change
-to the cluster's own settings so Kubernetes accepts that provider's logins. That's more than this
-chapter needs.
+A token needs nothing else installed, and it expires by itself. Chapter 11 adds a login provider
+and puts Headlamp behind it, so the token goes away there. See
+[why Headlamp gets a login gate and not its own OIDC login](#why-does-headlamp-get-a-gate-and-not-its-own-oidc-login).
 
 ### Why is the Headlamp account a cluster administrator?
 It's the chart's default, and it matches what you already have: your `kubectl` is an administrator
@@ -841,7 +840,7 @@ any webhook, and services such as ntfy turn a webhook into a phone notification.
 ### Why do Prometheus and Alertmanager have no address?
 Neither has a login. Anyone on your network could read every metric, and silence or delete alerts.
 Grafana has a login and shows the same data, so it gets the address. For the rare look at the
-other two, a port-forward is enough.
+other two, a port-forward is enough. Chapter 11 gives them an address behind a login gate.
 
 ### Why keep only 15 days of metrics?
 For "what happened last night" and "is this getting worse this week", 15 days is plenty, and it
@@ -857,3 +856,89 @@ first pattern: it's always on, so you can route it to such a service as a heartb
 A pod's logs disappear with the pod. Keeping them needs another piece (for example Loki, which
 Grafana can read). The guide leaves it out for now: for a few apps, the logs of the last runs,
 which Kubernetes keeps, cover most questions.
+
+## Chapter 11 · Single sign-on
+
+### Why a login provider at all?
+Each tool already has some login, but each is different, none asks for a second factor, and
+removing someone means visiting every tool. One provider gives one password, one second factor,
+one place to switch a person off, and tools without any login (Prometheus, Alertmanager) can be
+put behind it.
+
+### Why Authentik?
+It does both things this chapter needs, a **login gate** for tools without a login and **OIDC**
+for apps that have one, it has a web admin, and its whole configuration can be written as code
+(blueprints). Alternatives:
+- **Authelia** is lighter (one small process, configuration in a file) and does both too. It has
+  no admin pages: people and groups live in a file or an LDAP server. A good pick if you prefer
+  files and have few users.
+- **Keycloak** is the most complete and the most used in companies, but it's heavier (Java, more
+  memory) and much of its setup is clicked together, not written down.
+- **Pocket ID** and similar small providers are passkey-only OIDC servers: very simple, but no
+  login gate of their own.
+- **Cloudflare Access** (chapter 9) already puts a login in front of what's public. It only sees
+  traffic that goes through the tunnel, so it can't protect the tools on your network.
+
+### Why write the access rules in a blueprint, and not click them in the admin pages?
+For the same reason the rest of the cluster is in git: a change of access is a commit you can read,
+review and undo, and a rebuilt Authentik gets the same rules back. Clicking still works for trying
+things; write the result into the blueprint afterwards, or the next change of the file may
+overwrite it.
+
+### Why does Authentik get its own database, and not a shared one?
+Its users, sessions and second factors are the most sensitive data in the cluster. A database of
+its own (a small CloudNativePG Cluster, chapter 7) can be backed up, restored and upgraded on its
+own, and nothing else can read it.
+
+### Why are a second factor and the switched-off akadmin required?
+A single login in front of everything is worth more to an attacker than any one tool's login.
+Requiring a second factor for everybody, and switching off the install's own `akadmin` (a shared
+account nobody enrolled), means every way in is a named person with a second factor. You can still
+recover with `kubectl`: `ak create_recovery_key` makes a one-time link.
+
+### Why no email?
+Email needs an outgoing mail server and makes password reset a second way in. For a household, a
+one-time link made with `kubectl` covers enrolment and recovery. Add an SMTP server in the chart's
+values if you have many users.
+
+### Why a gate for some tools and an app login for others?
+Use the app's own OIDC login when it has users and rights of its own (Grafana, ArgoCD, Proxmox):
+it then knows who you are, so its own permissions and audit log work. Use the gate for tools that
+have no login at all (Prometheus, Alertmanager): the gate is the only thing that can protect them.
+
+### Why does Headlamp get a gate, and not its own OIDC login?
+Headlamp doesn't check logins itself: it passes your token on to Kubernetes. With OIDC, the
+**Kubernetes API server** must trust Authentik, which means changing the k3s server's settings and
+restarting it. For one or two administrators, a gate in front plus Headlamp's own administrator
+account gives the same result with nothing to change on the cluster. If several people with
+different rights use Headlamp, do the API server change: each person then acts as themselves.
+
+### Why does each app keep its local admin?
+So that Authentik being down never locks you out of the tools you'd use to fix it. ArgoCD's
+`admin` and Grafana's `admin` stay as break-glass logins, with their passwords in the secrets
+manager.
+
+### Why OIDC straight to Authentik in ArgoCD, and not through Dex?
+Dex is a login broker bundled with ArgoCD, useful when the real provider can't speak OIDC (for
+example GitHub or LDAP). Authentik speaks OIDC, so Dex would only be one more pod in the middle.
+
+### Why must the client secret be letters and digits only?
+The secret travels in form data and sometimes in URLs. Symbols such as `+`, `/` or `=` need escaping
+there, and a client that escapes them differently than the provider fails with a confusing
+"invalid client" error.
+
+### Why ExternalName Services for machines outside the cluster?
+A Service with no selector and a hand-written EndpointSlice is the other common way, but ArgoCD
+excludes EndpointSlices from what it manages by default, so they're silently never created. An
+ExternalName Service is one object, uses the machine's DNS name instead of its IP, and only needs
+one Traefik setting.
+
+### Why no gate in front of the hypervisor and the NAS?
+Both have their own login, and the hypervisor's goes through Authentik itself. A gate in front
+would make you log in twice and adds nothing. If your NAS's login is weak, putting it behind the
+gate as well is a reasonable choice.
+
+### Why keep all of this on the network only, and not publish it through the tunnel?
+These are the tools that control the cluster and the machine. Reaching them from outside is what a
+VPN is for; publishing them would put the single login in front of everything on the internet.
+

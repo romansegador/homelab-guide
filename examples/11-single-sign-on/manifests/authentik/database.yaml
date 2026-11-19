@@ -1,0 +1,18 @@
+# Authentik's database: one Postgres instance managed by CloudNativePG (chapter 7). The operator
+# creates database `app`, owner `app`, and the Secret `authentik-db-app` with its password.
+# For off-site backups, add the barman plugin exactly as in chapter 7.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: authentik-db
+spec:
+  instances: 1
+  storage:
+    size: 5Gi
+  bootstrap:
+    initdb:
+      database: app
+      owner: app
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}

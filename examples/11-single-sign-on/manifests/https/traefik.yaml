@@ -1,0 +1,28 @@
+# Settings for the Traefik that k3s installs: chapter 5's file plus one setting for chapter 11.
+#   - plain http:// requests are redirected to https://,
+#   - the wildcard certificate becomes the default for every HTTPS request,
+#   - (chapter 11, page 4) Services of type ExternalName are allowed, so a route can point at a
+#     machine outside the cluster by its DNS name.
+# Changing this file restarts Traefik once (the new pod starts before the old one stops).
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    providers:
+      kubernetesCRD:
+        allowExternalNameServices: true
+    ports:
+      web:
+        http:
+          redirections:
+            entryPoint:
+              to: websecure
+              scheme: https
+              permanent: true
+    tlsStore:
+      default:
+        defaultCertificate:
+          secretName: wildcard-tls

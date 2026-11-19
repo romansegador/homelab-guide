@@ -1,0 +1,59 @@
+# Values for the ArgoCD Helm chart (argo/argo-cd): chapter 5's file plus single sign-on with
+# Authentik. ArgoCD manages its own install from this file (see apps/argocd.yaml).
+
+global:
+  domain: argocd.lab.home.example.com
+
+server:
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+
+# Single sign-on straight to Authentik (OIDC), without ArgoCD's bundled Dex. The built-in `admin`
+# user stays as the way in when Authentik is down.
+dex:
+  enabled: false
+
+configs:
+  params:
+    # Traefik handles HTTPS in front of ArgoCD.
+    server.insecure: true
+  cm:
+    oidc.config: |
+      name: Authentik
+      issuer: https://auth.lab.home.example.com/application/o/argocd/
+      clientID: argocd
+      clientSecret: $argocd-oidc:client-secret
+      requestedScopes: ["openid", "profile", "email"]
+  rbac:
+    # Members of Authentik's `admins` group are ArgoCD admins; anyone else gets no rights.
+    policy.csv: |
+      g, admins, role:admin
+    scopes: "[groups]"
+
+# The client secret, from the secrets manager entry `authentik-oidc-argocd` (Authentik reads the
+# same entry). ArgoCD only reads Secrets labelled as its own, hence the label.
+extraObjects:
+  - apiVersion: external-secrets.io/v1
+    kind: ExternalSecret
+    metadata:
+      name: argocd-oidc
+      namespace: argocd
+    spec:
+      refreshInterval: 1h
+      secretStoreRef:
+        kind: ClusterSecretStore
+        name: bitwarden
+      target:
+        name: argocd-oidc
+        template:
+          metadata:
+            labels:
+              app.kubernetes.io/part-of: argocd
+      data:
+        - secretKey: client-secret
+          remoteRef:
+            key: authentik-oidc-argocd
+
+notifications:
+  enabled: false

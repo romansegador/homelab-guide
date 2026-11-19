@@ -835,10 +835,9 @@ incluidas las ejecuciones de un CronJob. Alternativas:
   No hay nada que instalar en el clúster, pero tampoco nada que abrir desde otro dispositivo.
 
 ### ¿Por qué iniciar sesión con un token, y no con inicio de sesión único?
-Un token no necesita nada más instalado, y caduca solo. Headlamp también admite inicio de sesión
-único (OIDC), más cómodo si lo usan varias personas, pero necesita un proveedor de identidad y un
-cambio en la configuración del propio clúster para que Kubernetes acepte los inicios de sesión de
-ese proveedor. Es más de lo que este capítulo necesita.
+Un token no necesita nada más instalado, y caduca solo. El capítulo 11 añade un proveedor de
+inicio de sesión y pone Headlamp detrás, así que ahí el token desaparece. Consulta
+[por qué Headlamp tiene una puerta y no su propio inicio de sesión OIDC](#por-qué-headlamp-tiene-una-puerta-y-no-su-propio-inicio-de-sesión-oidc).
 
 ### ¿Por qué la cuenta de Headlamp es administradora del clúster?
 Es el valor por defecto del chart, y coincide con lo que ya tienes: tu `kubectl` también es
@@ -899,7 +898,8 @@ Cambia el bloque `receivers` en `apps/monitoring.yaml`; el resto queda igual.
 ### ¿Por qué Prometheus y Alertmanager no tienen dirección?
 Ninguno tiene inicio de sesión. Cualquiera en tu red podría leer todas las métricas, y silenciar o
 borrar alertas. Grafana tiene inicio de sesión y muestra los mismos datos, así que la dirección es
-para él. Para la rara vez que mires los otros dos, basta con redirigir un puerto.
+para él. Para la rara vez que mires los otros dos, basta con redirigir un puerto. El capítulo 11
+les da dirección detrás de una puerta de inicio de sesión.
 
 ### ¿Por qué guardar solo 15 días de métricas?
 Para "qué pasó anoche" y "¿esto empeora esta semana?", 15 días son de sobra, y caben en unos pocos
@@ -916,3 +916,94 @@ servicio así como latido.
 Los registros de un pod desaparecen con el pod. Guardarlos necesita otra pieza (por ejemplo Loki,
 que Grafana puede leer). La guía lo deja fuera por ahora: para unas pocas aplicaciones, los
 registros de las últimas ejecuciones, que Kubernetes conserva, cubren la mayoría de las preguntas.
+
+## Capítulo 11 · Inicio de sesión único
+
+### ¿Para qué un proveedor de inicio de sesión?
+Cada herramienta ya tiene algún inicio de sesión, pero cada uno es distinto, ninguno pide un segundo
+factor, y quitar a alguien significa pasar por todas las herramientas. Un proveedor da una
+contraseña, un segundo factor, un sitio donde desactivar a una persona, y las herramientas sin
+ningún inicio de sesión (Prometheus, Alertmanager) pueden ponerse detrás.
+
+### ¿Por qué Authentik?
+Hace las dos cosas que este capítulo necesita, una **puerta de inicio de sesión** para herramientas
+sin uno propio y **OIDC** para las apps que sí lo tienen, tiene administración web, y toda su
+configuración puede escribirse como código (blueprints). Alternativas:
+- **Authelia** es más ligero (un proceso pequeño, configuración en un archivo) y también hace las
+  dos cosas. No tiene páginas de administración: las personas y los grupos viven en un archivo o en
+  un servidor LDAP. Buena elección si prefieres archivos y tienes pocos usuarios.
+- **Keycloak** es el más completo y el más usado en empresas, pero es más pesado (Java, más memoria)
+  y buena parte de su configuración se hace a golpe de clic, sin quedar escrita.
+- **Pocket ID** y proveedores pequeños parecidos son servidores OIDC solo con passkeys: muy
+  sencillos, pero sin puerta de inicio de sesión propia.
+- **Cloudflare Access** (capítulo 9) ya pone un inicio de sesión delante de lo que es público. Solo
+  ve el tráfico que pasa por el túnel, así que no puede proteger las herramientas de tu red.
+
+### ¿Por qué escribir las reglas de acceso en un blueprint, y no hacer clic en la administración?
+Por el mismo motivo por el que el resto del clúster está en git: un cambio de acceso es un commit
+que puedes leer, revisar y deshacer, y un Authentik reconstruido recupera las mismas reglas. Hacer
+clic sigue sirviendo para probar; escribe después el resultado en el blueprint, o el siguiente
+cambio del archivo puede sobrescribirlo.
+
+### ¿Por qué Authentik tiene su propia base de datos, y no una compartida?
+Sus usuarios, sesiones y segundos factores son los datos más sensibles del clúster. Una base de
+datos propia (un Cluster pequeño de CloudNativePG, capítulo 7) puede copiarse, restaurarse y
+actualizarse por separado, y nada más puede leerla.
+
+### ¿Por qué son obligatorios el segundo factor y el akadmin desactivado?
+Un solo inicio de sesión delante de todo vale más para un atacante que el de cualquier herramienta
+suelta. Exigir segundo factor a todos, y desactivar el `akadmin` de la instalación (una cuenta
+compartida que nadie dio de alta), hace que cada forma de entrar sea una persona con nombre y
+segundo factor. Siempre puedes recuperar el acceso con `kubectl`: `ak create_recovery_key` crea un
+enlace de un solo uso.
+
+### ¿Por qué sin correo?
+El correo necesita un servidor de salida y convierte el restablecimiento de contraseña en una
+segunda forma de entrar. Para una casa, un enlace de un solo uso creado con `kubectl` cubre el alta
+y la recuperación. Añade un servidor SMTP en los valores del chart si tienes muchos usuarios.
+
+### ¿Por qué una puerta para unas herramientas y un inicio de sesión en la app para otras?
+Usa el inicio de sesión OIDC de la app cuando tiene usuarios y permisos propios (Grafana, ArgoCD,
+Proxmox): así sabe quién eres, y sus permisos y su registro de auditoría funcionan. Usa la puerta
+para herramientas sin ningún inicio de sesión (Prometheus, Alertmanager): la puerta es lo único que
+puede protegerlas.
+
+### ¿Por qué Headlamp tiene una puerta, y no su propio inicio de sesión OIDC?
+Headlamp no comprueba los inicios de sesión por sí mismo: pasa tu token a Kubernetes. Con OIDC, el
+**servidor de API de Kubernetes** tiene que confiar en Authentik, lo que supone cambiar la
+configuración del servidor k3s y reiniciarlo. Para uno o dos administradores, una puerta delante
+más la cuenta de administrador del propio Headlamp da el mismo resultado sin tocar nada del
+clúster. Si varias personas con permisos distintos usan Headlamp, haz el cambio en el servidor de
+API: así cada una actúa como ella misma.
+
+### ¿Por qué cada app conserva su administrador local?
+Para que una caída de Authentik nunca te deje fuera de las herramientas que usarías para
+arreglarlo. El `admin` de ArgoCD y el `admin` de Grafana se quedan como accesos de emergencia, con
+sus contraseñas en el gestor de secretos.
+
+### ¿Por qué OIDC directo a Authentik en ArgoCD, y no a través de Dex?
+Dex es un intermediario de inicio de sesión que viene con ArgoCD, útil cuando el proveedor real no
+habla OIDC (por ejemplo GitHub o LDAP). Authentik habla OIDC, así que Dex solo sería un pod más en
+medio.
+
+### ¿Por qué el secreto de cliente debe tener solo letras y dígitos?
+El secreto viaja en datos de formulario y a veces en URLs. Símbolos como `+`, `/` o `=` necesitan
+escaparse ahí, y un cliente que los escapa distinto que el proveedor falla con un confuso error
+"invalid client".
+
+### ¿Por qué Services ExternalName para máquinas fuera del clúster?
+Un Service sin selector y un EndpointSlice escrito a mano es la otra forma habitual, pero ArgoCD
+excluye por defecto los EndpointSlices de lo que gestiona, así que nunca se crean y no lo avisa. Un
+Service ExternalName es un solo objeto, usa el nombre DNS de la máquina en lugar de su IP, y solo
+necesita un ajuste de Traefik.
+
+### ¿Por qué no hay puerta delante del hipervisor y el NAS?
+Los dos tienen su propio inicio de sesión, y el del hipervisor pasa por el propio Authentik. Una
+puerta delante te haría iniciar sesión dos veces y no añade nada. Si el inicio de sesión de tu NAS
+es débil, ponerlo también detrás de la puerta es una opción razonable.
+
+### ¿Por qué dejar todo esto solo en la red, y no publicarlo por el túnel?
+Son las herramientas que controlan el clúster y la máquina. Llegar a ellas desde fuera es para lo
+que sirve una VPN; publicarlas pondría en internet el único inicio de sesión que está delante de
+todo.
+

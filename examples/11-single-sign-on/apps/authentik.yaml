@@ -1,0 +1,77 @@
+# Authentik: the one login for the tools on your network, at https://auth.lab.home.example.com.
+# Its database, secret key and access rules (the blueprint) come from apps/authentik-config.yaml.
+# People enrol with a one-time recovery link, made with
+#   kubectl -n authentik exec deploy/authentik-worker -- ak create_recovery_key 60 <username>
+# (60 = minutes the link is valid).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: authentik
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://charts.goauthentik.io
+    chart: authentik
+    targetRevision: 2026.8.5
+    helm:
+      valuesObject:
+        authentik:
+          log_level: info
+          error_reporting:
+            enabled: false
+          # The CloudNativePG database `authentik-db`: service authentik-db-rw, database and user
+          # `app`. The password is set below from the Secret the operator creates.
+          postgresql:
+            host: authentik-db-rw
+            name: app
+            user: app
+        global:
+          env:
+            - name: AUTHENTIK_SECRET_KEY
+              valueFrom:
+                secretKeyRef: {name: authentik-secret-key, key: secret-key}
+            - name: AUTHENTIK_POSTGRESQL__PASSWORD
+              valueFrom:
+                secretKeyRef: {name: authentik-db-app, key: password}
+            # Pages 3 and 4: the OIDC client secrets, read by the blueprint with !Env. Leave each
+            # one out until you get to its page: the pods can't start while it's missing.
+            - name: AK_OIDC_GRAFANA_SECRET
+              valueFrom:
+                secretKeyRef: {name: authentik-oidc, key: grafana}
+            - name: AK_OIDC_ARGOCD_SECRET
+              valueFrom:
+                secretKeyRef: {name: authentik-oidc, key: argocd}
+            # Page 4: the hypervisor's login.
+            - name: AK_OIDC_PROXMOX_SECRET
+              valueFrom:
+                secretKeyRef: {name: authentik-oidc, key: proxmox}
+        # The worker applies the blueprint on start and on every change.
+        blueprints:
+          configMaps:
+            - authentik-blueprints
+        server:
+          # HTTPS comes from Traefik's default wildcard certificate (chapter 5).
+          ingress:
+            enabled: true
+            ingressClassName: traefik
+            hosts:
+              - auth.lab.home.example.com
+          resources:
+            requests: {cpu: 50m, memory: 400Mi}
+            limits: {memory: 1Gi}
+        worker:
+          resources:
+            requests: {cpu: 50m, memory: 400Mi}
+            limits: {memory: 1Gi}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: authentik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

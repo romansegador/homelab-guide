@@ -1,0 +1,136 @@
+---
+title: Apps que inician sesión con Authentik
+description: Da a Grafana y ArgoCD un botón "Iniciar sesión con Authentik" (OIDC), con permisos de administrador desde el grupo admins, y conserva el administrador local de cada app para cuando Authentik esté caído.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+:::note[Traducción asistida por IA]
+Esta página es una traducción asistida por IA del original en inglés, que es la referencia. Si
+ves un error, abre un issue o un PR.
+:::
+
+Grafana y ArgoCD tienen usuarios y permisos propios. En lugar de una puerta delante, tienen un
+botón **"Iniciar sesión con Authentik"**. Authentik les dice quién eres y en qué grupos estás, y
+los miembros de `admins` pasan a ser administradores en cada app.
+
+<Aside type="tip" title="Hazlo con un agente de IA">
+La skill `single-sign-on` cubre esta página. Consulta [Usar con un agente de IA](/es/start-here/agents/).
+</Aside>
+
+**Probado con:** Authentik 2026.8.5, Grafana 13.3 (kube-prometheus-stack 93.3.0), ArgoCD 3.6.1
+(chart 10.12.1).
+
+## Algunas ideas primero
+
+### OpenID Connect en un párrafo
+
+Cada app se registra en Authentik como un **cliente OIDC**, con un id (`grafana`, `argocd`), un
+**secreto de cliente**, y la dirección exacta a la que Authentik puede devolverte (la **redirect
+URI**). Cuando pulsas el botón, la app te envía a Authentik; inicias sesión ahí (con tu segundo
+factor); Authentik te devuelve con un código; la app cambia ese código, más su secreto de cliente,
+por un token firmado que dice quién eres y lista tus grupos.
+
+### Un secreto, leído por los dos lados
+
+El secreto de cliente tiene que ser el mismo en Authentik y en la app. Lo creas **una vez** en el
+gestor de secretos, y los dos lados leen esa misma entrada: Authentik a través de una variable de
+entorno que el blueprint lee con `!Env`, y la app a través de su propio ExternalSecret. No se copia
+nada a mano, y el valor nunca aparece en git.
+
+### El administrador local se queda
+
+Cada app conserva su propio administrador: el usuario `admin` de Grafana (capítulo 10) y el `admin`
+de ArgoCD (capítulo 3). Si Authentik está caído, esa es tu forma de entrar.
+
+El razonamiento detrás de cada elección está en las [preguntas frecuentes](/es/start-here/faq/#capítulo-11--inicio-de-sesión-único).
+
+## Antes de empezar
+
+- [ ] [Un proveedor de inicio de sesión](/es/single-sign-on/identity-provider/): inicias sesión en Authentik.
+- [ ] Tu usuario en Authentik está en el grupo `admins`.
+
+## Configúralo
+
+<Steps>
+
+1. **Crea los dos secretos de cliente.** En **Bitwarden Secrets Manager**, en el proyecto del
+   clúster, añade dos entradas, cada una con un valor aleatorio de letras y dígitos:
+   - **`authentik-oidc-grafana`**
+   - **`authentik-oidc-argocd`**
+
+   ```sh title="Portátil"
+   openssl rand -base64 48 | tr -d '/+=' | head -c 64; echo
+   ```
+
+   Solo letras y dígitos, para que el valor nunca necesite escaparse en una URL.
+
+2. **Deja que Authentik los lea.** Desde
+   [`examples/11-single-sign-on`](https://github.com/romansegador/homelab-guide/tree/main/examples/11-single-sign-on):
+   - `manifests/authentik/secrets.yaml`: añade el segundo documento, `authentik-oidc`, con sus
+     claves `grafana` y `argocd` (deja fuera `proxmox` hasta la página 4).
+   - `apps/authentik.yaml`: añade `AK_OIDC_GRAFANA_SECRET` y `AK_OIDC_ARGOCD_SECRET` en `global.env`.
+
+   <Aside type="caution">
+   Haz push de esto solo cuando existan las dos entradas. Los pods nuevos de Authentik no pueden
+   arrancar mientras falte un secreto que leen (los pods antiguos siguen funcionando hasta entonces,
+   así que no se rompe nada, pero tampoco cambia nada).
+   </Aside>
+
+3. **Registra las dos apps en el blueprint.** Copia la parte **"Page 3"** de
+   `manifests/authentik/blueprint.yaml`: los providers OIDC `grafana` y `argocd`, sus applications y
+   sus bindings de `admins`. Cambia `lab.home.example.com`.
+
+4. **Grafana.** Añade `manifests/monitoring/grafana-oidc.yaml` junto al `secrets.yaml` del
+   capítulo 10 (y a su `kustomization.yaml`, si tienes uno). En `apps/monitoring.yaml`, añade los
+   bloques `envValueFrom` y `grafana.ini` de Grafana del archivo de ejemplo. Cambia
+   `lab.home.example.com` en todas partes.
+
+   Qué hacen estos ajustes:
+   - `role_attribute_path`: los miembros de `admins` pasan a ser **Admin** en Grafana;
+     `role_attribute_strict` rechaza a cualquier otro.
+   - `email_attribute_path`: Grafana necesita un correo para cada usuario. Si un usuario no tiene
+     ninguno en Authentik, recibe `<username>@lab.home.example.com`.
+
+5. **ArgoCD.** Sustituye `manifests/argocd/values.yaml` por el del ejemplo (el archivo del
+   capítulo 5 más los ajustes OIDC). Añade:
+   - `configs.cm.oidc.config`: el inicio de sesión con Authentik, sin el Dex que trae ArgoCD;
+   - `configs.rbac`: `g, admins, role:admin`;
+   - un ExternalSecret `argocd-oidc` para el secreto de cliente, etiquetado para que ArgoCD lo lea.
+
+   Cambia `lab.home.example.com`. Haz commit y push de todo a `main`.
+
+6. **Espera a ArgoCD**, y comprueba que existen los dos inicios de sesión:
+
+   ```sh title="Portátil"
+   kubectl get externalsecret -A | grep oidc
+   curl -s https://auth.lab.home.example.com/application/o/grafana/.well-known/openid-configuration | head -c 120; echo
+   curl -s https://auth.lab.home.example.com/application/o/argocd/.well-known/openid-configuration | head -c 120; echo
+   ```
+
+   Los tres ExternalSecrets (`authentik-oidc`, `grafana-oidc`, `argocd-oidc`) están
+   `SecretSynced`, y cada `curl` imprime el principio de un documento JSON con un `issuer`.
+
+7. **Inicia sesión.** Abre `https://grafana.lab.home.example.com` y pulsa **Sign in with
+   Authentik**; luego `https://argocd.lab.home.example.com` y **Log in via Authentik**. Vuelves con
+   la sesión iniciada, como administrador en las dos.
+
+</Steps>
+
+## Compruébalo
+
+- En Grafana, **Administration → Users** te lista, con el rol **Admin**.
+- En ArgoCD, **User Info** muestra tu usuario y el grupo `admins`, y puedes sincronizar una app.
+- Iniciar sesión en Grafana como `admin` con la contraseña del capítulo 10 sigue funcionando.
+
+## Si ArgoCD te deja entrar pero no muestra apps
+
+ArgoCD da permisos por grupo. Si ves una lista vacía y "permission denied", tu token no trae el
+grupo `admins`: comprueba que tu usuario está en `admins` en Authentik, y que
+`configs.rbac.scopes` es `"[groups]"`.
+
+## Antes de seguir
+
+- [ ] Grafana y ArgoCD te dejan entrar a través de Authentik, como administrador.
+- [ ] Sus inicios de sesión locales `admin` siguen funcionando.
+- [ ] Los dos secretos de cliente solo existen en el gestor de secretos.

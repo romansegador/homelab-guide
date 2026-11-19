@@ -19,6 +19,7 @@ build progresses.
 | 8 | **A real app** | A multi-service app (web, API, worker, database) with automated image updates | ✅ Tested |
 | 9 | **Going public** | Exposing one app to the internet through a tunnel, with an access policy in front | ✅ Tested |
 | 10 | **Day 2** | A web page for the cluster, a scheduled job, monitoring with alerts; then upgrades, backups and restores, and a full rebuild from zero | 🚧 In progress: the cluster page, the scheduled job and monitoring are written (the scheduled job still needs a full run-through). Upgrades, restores and the rebuild are planned |
+| 11 | **Single sign-on** | One login with a second factor for every tool: a login provider (Authentik) with its access rules as code, a login gate for tools without a login, "Sign in with…" for Grafana and ArgoCD, and the hypervisor and NAS on your network names | ✅ Tested |
 
 ## Extras under consideration
 

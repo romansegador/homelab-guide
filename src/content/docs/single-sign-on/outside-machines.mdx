@@ -1,0 +1,147 @@
+---
+title: Machines outside the cluster
+description: Give the hypervisor and a NAS a name on your network served by the cluster's Traefik (ExternalName Services), and point Proxmox's own login at Authentik.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+Not everything you open in a browser runs in the cluster. The hypervisor's web UI and a NAS live
+on their own machines, each with its own address, port and certificate. This page gives them a
+**name under your `*.lab` wildcard**, served by the cluster's Traefik like everything else, and
+makes the hypervisor's own login go through **Authentik**.
+
+<Aside type="tip" title="Do it with an AI agent">
+The `single-sign-on` skill covers this page. See [Use with an AI agent](/start-here/agents/).
+</Aside>
+
+**Tested with:** Traefik 3.7 (k3s v1.37.2+k3s1), Proxmox VE 9.2, Authentik 2026.8.5.
+
+## A few ideas first
+
+### A Service that points outside
+
+A Kubernetes **Service** normally sends traffic to pods. A Service of type **ExternalName** sends
+it to a DNS name instead, here the hypervisor's or the NAS's. Traefik then routes
+`px.lab.home.example.com` to it, with the wildcard certificate from chapter 5 in front.
+
+Traefik refuses ExternalName Services unless you allow them, because in a cluster shared by
+several teams they could be used to reach places they shouldn't. On your own cluster you're the
+only one writing them, so this page switches that on.
+
+<Aside type="caution" title="Why not a Service with a hand-written address?">
+The other way to point a Service outside is a Service without a selector plus an
+**EndpointSlice** with the machine's IP. **ArgoCD ignores EndpointSlices by default** (they're in
+its list of excluded resources), so it never creates them: the Application shows `Synced` and
+`Healthy`, and Traefik answers **503**. That's why this page uses ExternalName.
+</Aside>
+
+### No gate in front
+
+Both machines have a login of their own, and the hypervisor's goes through Authentik itself (below).
+A gate in front would ask you to log in twice.
+
+### Still on your network only
+
+These names exist only in your private DNS (the `*.lab` record from chapter 5), and the tunnel
+from chapter 9 only forwards the names you listed there. Nothing here is reachable from the
+internet.
+
+The reasoning behind each choice is in the [FAQ](/start-here/faq/#chapter-11--single-sign-on).
+
+## Before you start
+
+- [ ] [A login provider](/single-sign-on/identity-provider/): you log in to Authentik.
+- [ ] The hypervisor and the NAS have DNS names on your network (for example
+      `proxmox.home.example.com`, `nas.home.example.com`) that the cluster can resolve.
+- [ ] You know which port each web UI listens on (Proxmox: `8006`, HTTPS).
+
+## Set it up
+
+<Steps>
+
+1. **Allow ExternalName Services in Traefik.** Replace chapter 5's
+   `manifests/https/traefik.yaml` with the example's: it adds
+   `providers.kubernetesCRD.allowExternalNameServices: true`. This restarts Traefik once; the new
+   pod starts before the old one stops, so nothing drops.
+
+2. **Add the two names.** From
+   [`examples/11-single-sign-on`](https://github.com/romansegador/homelab-guide/tree/main/examples/11-single-sign-on),
+   copy `apps/lan-hosts.yaml` and the `manifests/lan-hosts/` folder. Then edit them:
+   - `apps/lan-hosts.yaml`: your repository's SSH URL.
+   - `hypervisor.yaml`: the hypervisor's DNS name (`externalName` and `serverName`), and
+     `px.lab.home.example.com`. If the hypervisor still has the self-signed certificate Proxmox
+     makes at install, replace `serverName: …` with `insecureSkipVerify: true`.
+   - `nas.yaml`: the NAS's DNS name, its web UI's port (in both places), and
+     `nas.lab.home.example.com`.
+
+   Commit and push to `main`.
+
+3. **Check the names answer.**
+
+   ```sh title="Laptop"
+   kubectl -n lan-hosts get svc
+   curl -s -o /dev/null -w "%{http_code}\n" https://px.lab.home.example.com/
+   curl -s -o /dev/null -w "%{http_code}\n" https://nas.lab.home.example.com/
+   ```
+
+   Both Services are `ExternalName`, and both addresses answer `200` (or a redirect to the
+   machine's own login page).
+
+4. **Create the hypervisor's client secret.** In **Bitwarden Secrets Manager**, add
+   **`authentik-oidc-proxmox`**, made the same way as on page 3. Keep it at hand: you paste it
+   into Proxmox in step 7.
+
+5. **Let Authentik read it.** In `manifests/authentik/secrets.yaml`, add the `proxmox` key to
+   `authentik-oidc`; in `apps/authentik.yaml`, add `AK_OIDC_PROXMOX_SECRET`. Copy the **"Page 4"**
+   part of the blueprint (the `proxmox` OIDC provider, its application and its `admins` binding)
+   and replace both redirect addresses with yours: the new `px.lab…` name and the hypervisor's own
+   `https://<name>:8006`. Commit and push.
+
+6. **Check the login is there:**
+
+   ```sh title="Laptop"
+   curl -s https://auth.lab.home.example.com/application/o/proxmox/.well-known/openid-configuration | head -c 120; echo
+   ```
+
+   It prints the start of a JSON document with an `issuer`.
+
+7. **Point Proxmox at Authentik.** Keep a session as `root@pam` open in another tab, in case
+   something is wrong. Then add an OpenID Connect realm. In the UI: **Datacenter → Permissions →
+   Realms → Add → OpenID Connect Server**, with:
+   - **Issuer URL:** `https://auth.lab.home.example.com/application/o/proxmox/`
+   - **Realm:** `authentik`
+   - **Client ID:** `proxmox`
+   - **Client Key:** the value of `authentik-oidc-proxmox`
+   - **Username Claim:** `username`
+   - **Autocreate Users:** on
+
+   Or in a shell on the hypervisor. The first line reads the key without showing it or saving it
+   in the shell's history:
+
+   ```sh title="Proxmox host"
+   read -rsp "Client key: " KEY; echo
+   pveum realm add authentik --type openid --issuer-url https://auth.lab.home.example.com/application/o/proxmox/ --client-id proxmox --client-key "$KEY" --username-claim username --autocreate 1
+   unset KEY
+   ```
+
+   If you already have an `authentik` realm pointing somewhere else, use `pveum realm modify
+   authentik` with `--issuer-url` and `--client-key` instead.
+
+8. **Give your user rights in Proxmox.** Log in once with the **authentik** realm (Proxmox creates
+   `<username>@authentik`), then as `root@pam`, give that user a role, for example **Administrator**
+   on `/`: **Datacenter → Permissions → Add → User Permission**.
+
+</Steps>
+
+## Check it
+
+- `https://px.lab.home.example.com` opens the Proxmox login. Choose the **authentik** realm, and
+  you're sent to Authentik and back, logged in.
+- `https://nas.lab.home.example.com` opens the NAS's own login.
+- Neither name resolves from outside your network.
+
+## Before you move on
+
+- [ ] Both names work on your network.
+- [ ] You log in to Proxmox through Authentik, and `root@pam` still works.
+- [ ] `apps/lan-hosts.yaml`, `manifests/lan-hosts/`, Traefik's file and the blueprint are committed.
