@@ -1,0 +1,18 @@
+# Grafana's OIDC client secret, from the secrets manager entry `authentik-oidc-grafana` (Authentik
+# reads the same entry). Add this file next to chapter 10's manifests/monitoring/secrets.yaml.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: grafana-oidc
+  namespace: monitoring
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: bitwarden
+  target:
+    name: grafana-oidc
+  data:
+    - secretKey: client-secret
+      remoteRef:
+        key: authentik-oidc-grafana

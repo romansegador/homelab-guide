@@ -1,0 +1,174 @@
+---
+title: Un proveedor de inicio de sesión
+description: Instala Authentik en el clúster como el único inicio de sesión de tus herramientas, con su base de datos en el operador del capítulo 7, sus secretos desde el gestor de secretos, sus reglas de acceso como código y MFA obligatorio.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+:::note[Traducción asistida por IA]
+Esta página es una traducción asistida por IA del original en inglés, que es la referencia. Si
+ves un error, abre un issue o un PR.
+:::
+
+A estas alturas cada herramienta tiene su propia forma de entrar: un token para Headlamp, una
+contraseña para Grafana, otra para ArgoCD, otra para el hipervisor. Este capítulo les da **un solo
+inicio de sesión**, con doble factor, que puedes desactivar para una persona en un único sitio.
+
+Esta primera página instala el propio proveedor de inicio de sesión, **Authentik**. Las siguientes
+lo ponen delante de tus herramientas:
+
+1. **Un proveedor de inicio de sesión** (esta página): Authentik, su base de datos y sus reglas de
+   acceso como código.
+2. [**Un inicio de sesión delante de cualquier herramienta**](/es/single-sign-on/login-gate/): para
+   herramientas sin inicio de sesión propio, como Headlamp, Prometheus y Alertmanager.
+3. [**Apps que inician sesión con Authentik**](/es/single-sign-on/app-logins/): Grafana y ArgoCD
+   tienen un botón "Iniciar sesión con Authentik".
+4. [**Máquinas fuera del clúster**](/es/single-sign-on/outside-machines/): nombres en tu red para el
+   hipervisor y un NAS, y el inicio de sesión del hipervisor a través de Authentik.
+
+<Aside type="tip" title="Hazlo con un agente de IA">
+Este capítulo tiene una skill de agente, `single-sign-on`. Consulta [Usar con un agente de IA](/es/start-here/agents/).
+</Aside>
+
+**Probado con:** Authentik 2026.8.5 (chart 2026.8.5), CloudNativePG 1.30.1 con PostgreSQL 18.6,
+en k3s v1.37.2+k3s1 (Traefik 3.7) con ArgoCD 3.6.1.
+
+## Algunas ideas primero
+
+### Dos formas de poner un inicio de sesión delante de una herramienta
+
+```text
+                  ┌──────────────── a login gate (page 2) ────────────────┐
+browser ──▶ Traefik ──"may this person in?"──▶ Authentik ──yes──▶ the tool (no login of its own)
+
+                  ┌──────────────── an app login (page 3) ────────────────┐
+browser ──▶ the app ──"Sign in with Authentik"──▶ Authentik ──a signed token──▶ the app
+```
+
+- Una **puerta de inicio de sesión** (forward-auth) sirve para cualquier página web: Traefik
+  pregunta a Authentik antes de dejar pasar una petición. La herramienta nunca sabe quién eres.
+- Un **inicio de sesión en la app** (OpenID Connect, OIDC) es para herramientas que tienen usuarios
+  propios. La app te envía a Authentik, recibe quién eres y tus grupos, y te da permisos según ellos.
+
+### El acceso como código
+
+Authentik guarda su configuración en su base de datos, y podrías montarla a golpe de clic en sus
+páginas de administración. Este capítulo la escribe en un **blueprint**: un archivo YAML en tu
+repositorio de configuración que Authentik aplica al arrancar y en cada cambio. Quién puede abrir
+qué es entonces un commit que puedes leer, revisar y deshacer, como todo lo demás del clúster.
+
+Dos cosas se quedan fuera de git: **las contraseñas y los segundos factores** (cada persona pone
+los suyos) y **los secretos de cliente** (el gestor de secretos, como en el capítulo 4).
+
+### Dos grupos
+
+El blueprint tiene dos grupos:
+- **`admins`**: superusuarios, con acceso a todas las herramientas.
+- **`family`**: solo con acceso a las herramientas que les abras, una a una.
+
+### Sin correo
+
+Authentik puede enviar correos para restablecer la contraseña, pero eso necesita un servidor de
+correo. Este capítulo no lo configura. Una persona se da de alta, o recupera un acceso perdido, con
+un **enlace de un solo uso** que creas con un comando.
+
+El razonamiento detrás de cada elección está en las [preguntas frecuentes](/es/start-here/faq/#capítulo-11--inicio-de-sesión-único).
+
+## Antes de empezar
+
+- [ ] [Capítulo 4](/es/secrets/external-secrets/): el ClusterSecretStore `bitwarden` está `Valid`.
+- [ ] [Capítulo 5](/es/https/certificates-and-dns/): el certificado comodín y el registro DNS `*.lab` funcionan.
+- [ ] [Capítulo 7](/es/database/postgres/): el operador CloudNativePG está instalado.
+- [ ] Una app de autenticación en tu móvil, o una llave de seguridad.
+
+## Configúralo
+
+<Steps>
+
+1. **Crea la clave secreta.** En **Bitwarden Secrets Manager**, en el proyecto del clúster, añade
+   una entrada llamada **`authentik-secret-key`** con un valor aleatorio de 60 caracteres o más. Vale
+   el generador de un gestor de contraseñas, o esto:
+
+   ```sh title="Portátil"
+   openssl rand -base64 60 | tr -d '\n'; echo
+   ```
+
+   Authentik firma sus sesiones con ella. **No la cambies nunca** una vez que Authentik haya arrancado.
+
+2. **Copia los archivos a tu repositorio de configuración.** Desde
+   [`examples/11-single-sign-on`](https://github.com/romansegador/homelab-guide/tree/main/examples/11-single-sign-on),
+   copia:
+   - `apps/authentik.yaml` y `apps/authentik-config.yaml` a `apps/`,
+   - la carpeta `manifests/authentik/` entera a `manifests/`.
+
+   Después edítalos:
+   - En todos: cambia `lab.home.example.com` por tu propio subdominio, y en
+     `apps/authentik-config.yaml` cambia `<YOUR_CONFIG_REPO_URL>` por la URL SSH de tu repositorio.
+   - `apps/authentik.yaml`: **borra las tres entradas `AK_OIDC_…`** de `global.env` por ahora. Las
+     páginas 3 y 4 las vuelven a añadir con sus secretos.
+   - `manifests/authentik/secrets.yaml`: **borra el segundo documento** (`authentik-oidc`), por el
+     mismo motivo.
+   - `manifests/authentik/blueprint.yaml`: cambia `alice` y `bob` por nombres de usuario reales, y
+     **borra todo desde el encabezado "Page 2" hacia abajo**. Lo que queda es la parte "Page 1":
+     los grupos, los usuarios, la regla de MFA y la entrada de `akadmin`. Cada página posterior
+     añade de vuelta su parte.
+   - `manifests/authentik/kustomization.yaml`: quita `forward-auth.yaml` de la lista por ahora
+     (página 2).
+
+   Haz commit y push a `main`.
+
+3. **Espera a ArgoCD.** Primero va la base de datos, luego Authentik (su primer arranque ejecuta
+   las migraciones de la base de datos y tarda unos minutos).
+
+   ```sh title="Portátil"
+   kubectl -n argocd get application authentik authentik-config
+   kubectl -n authentik get cluster,pods
+   ```
+
+   Las dos Applications están `Synced` y `Healthy`, el Cluster dice `Cluster in healthy state`, y
+   los pods `authentik-server` y `authentik-worker` están `Running`.
+
+4. **Comprueba que el blueprint se aplicó.**
+
+   ```sh title="Portátil"
+   kubectl -n authentik logs deploy/authentik-worker | grep -i blueprint | tail -5
+   ```
+
+   Ninguna línea dice `error` ni `failed`.
+
+5. **Date de alta.** Crea un enlace de un solo uso para tu nombre de usuario, válido 60 minutos:
+
+   ```sh title="Portátil"
+   kubectl -n authentik exec deploy/authentik-worker -- ak create_recovery_key 60 <YOUR_USERNAME>
+   ```
+
+   Abre el enlace que imprime. Authentik te pide **poner una contraseña** y después **añadir un
+   segundo factor** (una app de autenticación o una llave de seguridad). El enlace funciona una vez.
+
+6. **Inicia sesión** en `https://auth.lab.home.example.com` con tu usuario, tu contraseña y tu
+   segundo factor. Llegas a tu lista de apps, vacía por ahora. Como miembro de `admins` también ves
+   **Admin interface**.
+
+</Steps>
+
+<Aside type="caution" title="La cuenta akadmin está desactivada">
+La instalación de Authentik crea un administrador llamado `akadmin`, y el blueprint lo desactiva,
+así que la única forma de entrar es a través de una persona que se dio de alta con segundo factor.
+Si te quedas fuera, crea un enlace nuevo para tu propio usuario con el paso 5: solo necesita
+`kubectl`.
+</Aside>
+
+## Compruébalo
+
+- `https://auth.lab.home.example.com` pide un usuario, luego una contraseña y luego tu segundo factor.
+- En **Admin interface → Directory → Users**, `akadmin` está inactivo y tu usuario está en `admins`.
+- En **Admin interface → Customization → Blueprints**, el blueprint *Homelab - access
+  configuration* tiene el estado **successful**.
+
+## Antes de seguir
+
+- [ ] Inicias sesión en Authentik con contraseña y segundo factor.
+- [ ] `apps/authentik*.yaml` y `manifests/authentik/` están en tu repositorio de configuración.
+- [ ] La copia nocturna de tu máquina (capítulo 2) ya incluye la base de datos de Authentik, con
+      sus usuarios y sus segundos factores. Para tener también copias fuera de casa, añade el plugin
+      barman a `database.yaml` como en el [capítulo 7](/es/database/postgres/).

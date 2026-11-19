@@ -1,0 +1,141 @@
+---
+title: A login in front of any tool
+description: Put Authentik's login in front of tools that have none of their own (Headlamp, Prometheus, Alertmanager) with Traefik forward-auth, and choose per group who gets in.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+Some tools have no login at all: Prometheus and Alertmanager, for example, which chapter 10 kept
+without an address for that reason. Others, like Headlamp, ask for a token you have to make each
+day. This page puts **Authentik's login in front of them**: Traefik asks Authentik about every
+request, and only people in the right group get through.
+
+<Aside type="tip" title="Do it with an AI agent">
+The `single-sign-on` skill covers this page. See [Use with an AI agent](/start-here/agents/).
+</Aside>
+
+**Tested with:** Authentik 2026.8.5, Traefik 3.7 (k3s v1.37.2+k3s1), Headlamp 0.46.0,
+kube-prometheus-stack 93.3.0.
+
+## A few ideas first
+
+### How the gate works
+
+```text
+browser ──▶ Traefik ──▶ middleware "authentik" ──▶ Authentik's embedded outpost
+                                                      │
+                     logged in, and in an allowed group? ── no ──▶ redirect to the login page
+                                                      │ yes
+                                                      ▼
+                                      the tool (Headlamp, Prometheus, …)
+```
+
+Three pieces make it work, all in `manifests/authentik/`:
+- a Traefik **middleware** that sends each request to Authentik first. An app opts in with one
+  annotation on its Ingress;
+- for each gated app, a **proxy provider** and an **application** in the blueprint, plus a
+  **policy binding** per group that may open it;
+- an **Ingress** that routes the path `/outpost.goauthentik.io/` on each gated host to Authentik,
+  so the browser can come back there after logging in.
+
+Authentik's **embedded outpost** (part of the Authentik server, nothing extra to run) answers
+Traefik's questions. It has to list every proxy provider, which the blueprint does too.
+
+### Headlamp without a token
+
+Behind the gate, Headlamp doesn't need to ask who you are anymore: only `admins` reach it. So it
+can use **its own service account**, a cluster administrator, and stop asking for a token. Headlamp
+calls this setting "unsafe" because it's only safe with a gate in front, which is exactly what this
+page builds. Never remove the gate from Headlamp while that setting is on.
+
+The reasoning behind each choice is in the [FAQ](/start-here/faq/#chapter-11--single-sign-on).
+
+## Before you start
+
+- [ ] [A login provider](/single-sign-on/identity-provider/): you log in to Authentik.
+- [ ] [Chapter 10](/day-2/cluster-ui/): Headlamp and monitoring are installed.
+
+## Set it up
+
+<Steps>
+
+1. **Add the gate to the blueprint.** From
+   [`examples/11-single-sign-on`](https://github.com/romansegador/homelab-guide/tree/main/examples/11-single-sign-on),
+   copy the **"Page 2"** part of `manifests/authentik/blueprint.yaml` into yours, under the "Page 1"
+   part: the three proxy providers, applications and bindings (Headlamp, Prometheus,
+   Alertmanager) and the embedded outpost entry. Replace `lab.home.example.com` with your subdomain.
+
+2. **Add the middleware and the outpost routes.** Copy `manifests/authentik/forward-auth.yaml`,
+   replace `lab.home.example.com`, and add `forward-auth.yaml` back to the `resources` list in
+   `manifests/authentik/kustomization.yaml`.
+
+3. **Gate the tools.** Replace two of chapter 10's files with the ones from the example (then
+   replace `lab.home.example.com` in each):
+   - `apps/headlamp.yaml`: the Ingress gets the middleware annotation, and Headlamp uses its own
+     account (`config.unsafeUseServiceAccountToken: true`).
+   - `apps/monitoring.yaml`: Prometheus and Alertmanager get an address
+     (`prometheus.lab…`, `alertmanager.lab…`), each with the middleware annotation. Keep the
+     Grafana part as it is for now: the "Page 3" lines in it come with the next page, so leave out
+     the `envValueFrom` and `grafana.ini` blocks.
+
+   Commit and push all of it to `main` together.
+
+4. **Wait for ArgoCD**, then check that the gate is in place:
+
+   ```sh title="Laptop"
+   kubectl -n argocd get application authentik-config headlamp monitoring
+   curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" https://headlamp.lab.home.example.com/
+   ```
+
+   The Applications are `Synced` and `Healthy`. The `curl` answers `302` with a redirect to
+   `https://auth.lab.home.example.com/…`: not logged in, so Authentik sends you to its login.
+
+5. **Open the tools in a browser.** `https://headlamp.lab.home.example.com`,
+   `https://prometheus.lab.home.example.com` and `https://alertmanager.lab.home.example.com` each
+   send you to Authentik once; after that you go straight in. Headlamp no longer asks for a token.
+
+</Steps>
+
+## Add another tool later
+
+For each new tool behind the gate:
+1. In the blueprint: a proxy provider (copy one with `<<: *forward-auth` and change
+   `external_host`), an application, one binding per group that may open it, and the provider in
+   the embedded outpost's `providers` list.
+2. In `forward-auth.yaml`: one more host in the `authentik-outpost` Ingress.
+3. On the tool's Ingress: the annotation
+   `traefik.ingress.kubernetes.io/router.middlewares: authentik-authentik@kubernetescrd`.
+
+To let the `family` group into a tool, add a binding with `group: !KeyOf group-family` (and
+`order: 1`) to that tool.
+
+## If a gated address answers 404 from Authentik
+
+After a blueprint change, the outpost is told about the new provider by a background task. That
+task can fail (we saw it fail on a database deadlock), and then the new host answers **404**, with
+a header `x-authentik-id` in the response. The blueprint itself is fine; only the update is missing.
+Send it again, without restarting anything:
+
+```sh title="Laptop"
+kubectl -n authentik exec deploy/authentik-worker -- ak shell -c "from authentik.outposts.models import Outpost; from authentik.outposts.tasks import outpost_send_update; outpost_send_update.send(Outpost.objects.get(managed='goauthentik.io/outposts/embedded').pk)"
+```
+
+A few seconds later the address redirects to the login as it should.
+
+## If Authentik is down
+
+Everything behind the gate is unreachable by its address, on purpose. You can still reach a tool
+directly from your laptop, through `kubectl`:
+
+```sh title="Laptop"
+kubectl -n headlamp port-forward svc/headlamp 8080:80
+```
+
+Then open `http://localhost:8080`. The same works for Prometheus
+(`kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090`).
+
+## Before you move on
+
+- [ ] Headlamp, Prometheus and Alertmanager open only after logging in to Authentik.
+- [ ] Headlamp no longer asks for a token.
+- [ ] The blueprint, `forward-auth.yaml` and the two app files are committed.

@@ -107,6 +107,16 @@ export default defineConfig({
 						{ slug: 'day-2/monitoring' },
 					],
 				},
+				{
+					label: '11 · Single sign-on',
+					translations: { es: '11 · Inicio de sesión único' },
+					items: [
+						{ slug: 'single-sign-on/identity-provider' },
+						{ slug: 'single-sign-on/login-gate' },
+						{ slug: 'single-sign-on/app-logins' },
+						{ slug: 'single-sign-on/outside-machines' },
+					],
+				},
 			],
 		}),
 	],

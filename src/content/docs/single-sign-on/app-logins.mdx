@@ -1,0 +1,132 @@
+---
+title: Apps that log in with Authentik
+description: Give Grafana and ArgoCD a "Sign in with Authentik" button (OIDC), with admin rights from the admins group, and keep each app's own admin login as the way in when Authentik is down.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+Grafana and ArgoCD have users and rights of their own. Instead of a gate in front, they get a
+**"Sign in with Authentik"** button. Authentik tells them who you are and which groups you're in,
+and members of `admins` become administrators in each app.
+
+<Aside type="tip" title="Do it with an AI agent">
+The `single-sign-on` skill covers this page. See [Use with an AI agent](/start-here/agents/).
+</Aside>
+
+**Tested with:** Authentik 2026.8.5, Grafana 13.3 (kube-prometheus-stack 93.3.0), ArgoCD 3.6.1
+(chart 10.12.1).
+
+## A few ideas first
+
+### OpenID Connect in one paragraph
+
+Each app is registered in Authentik as an **OIDC client**, with an id (`grafana`, `argocd`), a
+**client secret**, and the exact address Authentik may send you back to (the **redirect URI**). When
+you click the button, the app sends you to Authentik; you log in there (with your second factor);
+Authentik sends you back with a code; the app swaps that code, plus its client secret, for a signed
+token that says who you are and lists your groups.
+
+### One secret, read by both sides
+
+The client secret must be the same in Authentik and in the app. You create it **once** in the
+secrets manager, and both sides read that one entry: Authentik through an environment variable
+that the blueprint reads with `!Env`, the app through its own ExternalSecret. Nothing is copied by
+hand, and the value never appears in git.
+
+### The local admin stays
+
+Each app keeps its own administrator: Grafana's `admin` user (chapter 10), ArgoCD's `admin`
+(chapter 3). If Authentik is down, that's your way in.
+
+The reasoning behind each choice is in the [FAQ](/start-here/faq/#chapter-11--single-sign-on).
+
+## Before you start
+
+- [ ] [A login provider](/single-sign-on/identity-provider/): you log in to Authentik.
+- [ ] Your user in Authentik is in the `admins` group.
+
+## Set it up
+
+<Steps>
+
+1. **Create the two client secrets.** In **Bitwarden Secrets Manager**, in the cluster's project,
+   add two entries, each with a random value of letters and digits:
+   - **`authentik-oidc-grafana`**
+   - **`authentik-oidc-argocd`**
+
+   ```sh title="Laptop"
+   openssl rand -base64 48 | tr -d '/+=' | head -c 64; echo
+   ```
+
+   Letters and digits only, so the value never needs escaping in a URL.
+
+2. **Let Authentik read them.** From
+   [`examples/11-single-sign-on`](https://github.com/romansegador/homelab-guide/tree/main/examples/11-single-sign-on):
+   - `manifests/authentik/secrets.yaml`: add the second document, `authentik-oidc`, with its
+     `grafana` and `argocd` keys (leave out `proxmox` until page 4).
+   - `apps/authentik.yaml`: add `AK_OIDC_GRAFANA_SECRET` and `AK_OIDC_ARGOCD_SECRET` under
+     `global.env`.
+
+   <Aside type="caution">
+   Push this only once both entries exist. Authentik's new pods can't start while a secret they
+   read is missing (the old pods keep running until then, so nothing breaks, but nothing changes
+   either).
+   </Aside>
+
+3. **Register the two apps in the blueprint.** Copy the **"Page 3"** part of
+   `manifests/authentik/blueprint.yaml`: the `grafana` and `argocd` OIDC providers, their
+   applications and their `admins` bindings. Replace `lab.home.example.com`.
+
+4. **Grafana.** Add `manifests/monitoring/grafana-oidc.yaml` next to chapter 10's
+   `secrets.yaml` (and to its `kustomization.yaml` if you have one). In `apps/monitoring.yaml`, add
+   the Grafana `envValueFrom` and `grafana.ini` blocks from the example file. Replace
+   `lab.home.example.com` everywhere.
+
+   What the settings do:
+   - `role_attribute_path`: members of `admins` become Grafana **Admin**; `role_attribute_strict`
+     refuses anyone else.
+   - `email_attribute_path`: Grafana needs an email for each user. If a user has none in
+     Authentik, they get `<username>@lab.home.example.com`.
+
+5. **ArgoCD.** Replace `manifests/argocd/values.yaml` with the example's (chapter 5's file plus
+   the OIDC settings). It adds:
+   - `configs.cm.oidc.config`: the login with Authentik, without ArgoCD's bundled Dex;
+   - `configs.rbac`: `g, admins, role:admin`;
+   - an ExternalSecret `argocd-oidc` for the client secret, labelled so ArgoCD reads it.
+
+   Replace `lab.home.example.com`. Commit and push everything to `main`.
+
+6. **Wait for ArgoCD**, then check the two logins exist:
+
+   ```sh title="Laptop"
+   kubectl get externalsecret -A | grep oidc
+   curl -s https://auth.lab.home.example.com/application/o/grafana/.well-known/openid-configuration | head -c 120; echo
+   curl -s https://auth.lab.home.example.com/application/o/argocd/.well-known/openid-configuration | head -c 120; echo
+   ```
+
+   The three ExternalSecrets (`authentik-oidc`, `grafana-oidc`, `argocd-oidc`) are `SecretSynced`,
+   and each `curl` prints the start of a JSON document with an `issuer`.
+
+7. **Log in.** Open `https://grafana.lab.home.example.com` and click **Sign in with Authentik**;
+   then `https://argocd.lab.home.example.com` and **Log in via Authentik**. You come back logged in,
+   as an administrator in both.
+
+</Steps>
+
+## Check it
+
+- In Grafana, **Administration → Users** lists you, with role **Admin**.
+- In ArgoCD, **User Info** shows your username and the group `admins`, and you can sync an app.
+- Logging in to Grafana as `admin` with chapter 10's password still works.
+
+## If ArgoCD logs you in but shows no apps
+
+ArgoCD gives rights by group. If you see an empty list and "permission denied", your token has no
+`admins` group: check that your user is in `admins` in Authentik, and that `configs.rbac.scopes`
+is `"[groups]"`.
+
+## Before you move on
+
+- [ ] Grafana and ArgoCD log you in through Authentik, as an administrator.
+- [ ] Their local `admin` logins still work.
+- [ ] The two client secrets exist only in the secrets manager.

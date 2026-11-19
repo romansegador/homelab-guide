@@ -1,0 +1,167 @@
+---
+title: A login provider
+description: Install Authentik on the cluster as the one login for your tools, with its database on the operator from chapter 7, its secrets from the secrets manager, its access rules as code, and MFA required.
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+By now every tool has its own way in: a token for Headlamp, a password for Grafana, another for
+ArgoCD, another for the hypervisor. This chapter gives them **one login**, with two-factor
+authentication, that you can switch off for a person in one place.
+
+This first page installs the login provider itself, **Authentik**. The next pages put it in
+front of your tools:
+
+1. **A login provider** (this page): Authentik, its database, its access rules as code.
+2. [**A login in front of any tool**](/single-sign-on/login-gate/): for tools with no login of their
+   own, such as Headlamp, Prometheus and Alertmanager.
+3. [**Apps that log in with Authentik**](/single-sign-on/app-logins/): Grafana and ArgoCD get a
+   "Sign in with Authentik" button.
+4. [**Machines outside the cluster**](/single-sign-on/outside-machines/): names on your network for
+   the hypervisor and a NAS, and the hypervisor's own login through Authentik.
+
+<Aside type="tip" title="Do it with an AI agent">
+This chapter has an agent skill, `single-sign-on`. See [Use with an AI agent](/start-here/agents/).
+</Aside>
+
+**Tested with:** Authentik 2026.8.5 (chart 2026.8.5), CloudNativePG 1.30.1 with PostgreSQL 18.6,
+on k3s v1.37.2+k3s1 (Traefik 3.7) with ArgoCD 3.6.1.
+
+## A few ideas first
+
+### Two ways to put a login in front of a tool
+
+```text
+                  ┌──────────────── a login gate (page 2) ────────────────┐
+browser ──▶ Traefik ──"may this person in?"──▶ Authentik ──yes──▶ the tool (no login of its own)
+
+                  ┌──────────────── an app login (page 3) ────────────────┐
+browser ──▶ the app ──"Sign in with Authentik"──▶ Authentik ──a signed token──▶ the app
+```
+
+- A **login gate** (forward-auth) works for any web page: Traefik asks Authentik before letting a
+  request through. The tool itself never knows who you are.
+- An **app login** (OpenID Connect, OIDC) is for tools that have users of their own. The app sends
+  you to Authentik, gets back who you are and your groups, and gives you rights from them.
+
+### Access as code
+
+Authentik keeps its settings in its database, and you could click them together in its admin
+pages. This chapter writes them in a **blueprint** instead: a YAML file in your config repository
+that Authentik applies on start and on every change. Who may open what is then a commit you can
+read, review and roll back, like everything else in the cluster.
+
+Two things stay out of git: **passwords and second factors** (each person sets their own) and
+**client secrets** (the secrets manager, as in chapter 4).
+
+### Two groups
+
+The blueprint has two groups:
+- **`admins`**: superusers, allowed into every tool.
+- **`family`**: allowed only into the tools you open to them, one by one.
+
+### No email
+
+Authentik can send password-reset emails, but that needs a mail server. This chapter doesn't set
+one up. A person enrols, or recovers a lost login, with a **one-time link** you make with a
+command.
+
+The reasoning behind each choice is in the [FAQ](/start-here/faq/#chapter-11--single-sign-on).
+
+## Before you start
+
+- [ ] [Chapter 4](/secrets/external-secrets/): the `bitwarden` ClusterSecretStore is `Valid`.
+- [ ] [Chapter 5](/https/certificates-and-dns/): the wildcard certificate and the `*.lab` DNS record work.
+- [ ] [Chapter 7](/database/postgres/): the CloudNativePG operator is installed.
+- [ ] An authenticator app on your phone, or a security key.
+
+## Set it up
+
+<Steps>
+
+1. **Create the secret key.** In **Bitwarden Secrets Manager**, in the cluster's project, add an
+   entry named **`authentik-secret-key`** with a random value of 60 or more characters. A password
+   manager's generator is fine, as is this:
+
+   ```sh title="Laptop"
+   openssl rand -base64 60 | tr -d '\n'; echo
+   ```
+
+   Authentik signs its sessions with it. **Never change it** once Authentik has started.
+
+2. **Copy the files into your config repository.** From
+   [`examples/11-single-sign-on`](https://github.com/romansegador/homelab-guide/tree/main/examples/11-single-sign-on),
+   copy:
+   - `apps/authentik.yaml` and `apps/authentik-config.yaml` into `apps/`,
+   - the whole `manifests/authentik/` folder into `manifests/`.
+
+   Then edit them:
+   - Everywhere: replace `lab.home.example.com` with your own subdomain, and in
+     `apps/authentik-config.yaml` replace `<YOUR_CONFIG_REPO_URL>` with your repository's SSH URL.
+   - `apps/authentik.yaml`: **delete the three `AK_OIDC_…` entries** under `global.env` for now.
+     Pages 3 and 4 add them back with their secrets.
+   - `manifests/authentik/secrets.yaml`: **delete the second document** (`authentik-oidc`), for the
+     same reason.
+   - `manifests/authentik/blueprint.yaml`: replace `alice` and `bob` with real usernames, and
+     **delete everything from the "Page 2" heading downwards**. What stays is the "Page 1" part:
+     the groups, the users, the MFA rule and the `akadmin` entry. Each later page adds its own
+     part back.
+   - `manifests/authentik/kustomization.yaml`: remove `forward-auth.yaml` from the list for now
+     (page 2).
+
+   Commit and push to `main`.
+
+3. **Wait for ArgoCD.** The database comes first, then Authentik (its first start runs database
+   migrations and takes a few minutes).
+
+   ```sh title="Laptop"
+   kubectl -n argocd get application authentik authentik-config
+   kubectl -n authentik get cluster,pods
+   ```
+
+   Both Applications are `Synced` and `Healthy`, the Cluster says `Cluster in healthy state`, and
+   the `authentik-server` and `authentik-worker` pods are `Running`.
+
+4. **Check that the blueprint was applied.**
+
+   ```sh title="Laptop"
+   kubectl -n authentik logs deploy/authentik-worker | grep -i blueprint | tail -5
+   ```
+
+   No line says `error` or `failed`.
+
+5. **Enrol yourself.** Make a one-time link for your username, valid for 60 minutes:
+
+   ```sh title="Laptop"
+   kubectl -n authentik exec deploy/authentik-worker -- ak create_recovery_key 60 <YOUR_USERNAME>
+   ```
+
+   Open the link it prints. Authentik asks you to **set a password**, then to **add a second
+   factor** (an authenticator app or a security key). The link works once.
+
+6. **Log in** at `https://auth.lab.home.example.com` with your username, your password and your
+   second factor. You land on your list of apps, empty for now. As a member of `admins` you also
+   see **Admin interface**.
+
+</Steps>
+
+<Aside type="caution" title="The akadmin account is switched off">
+Authentik's install creates an administrator called `akadmin`, and the blueprint switches it off,
+so the only way in is through a person who enrolled with a second factor. If you lock yourself
+out, make a new link for your own username with step 5: that only needs `kubectl`.
+</Aside>
+
+## Check it
+
+- `https://auth.lab.home.example.com` asks for a username, then a password, then your second factor.
+- In **Admin interface → Directory → Users**, `akadmin` is inactive and your user is in `admins`.
+- In **Admin interface → Customization → Blueprints**, the blueprint *Homelab - access
+  configuration* has status **successful**.
+
+## Before you move on
+
+- [ ] You log in to Authentik with a password and a second factor.
+- [ ] `apps/authentik*.yaml` and `manifests/authentik/` are committed in your config repository.
+- [ ] Your machine's nightly backup (chapter 2) now includes Authentik's database, with its users
+      and their second factors. For off-site backups as well, add the barman plugin to
+      `database.yaml` as in [chapter 7](/database/postgres/).

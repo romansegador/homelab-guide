@@ -1,0 +1,24 @@
+# Names on your network for machines outside the cluster, served by the cluster's Traefik with the
+# wildcard certificate: the hypervisor (px.lab…) and a NAS (nas.lab…).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: lan-hosts
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: <YOUR_CONFIG_REPO_URL>
+    targetRevision: main
+    path: manifests/lan-hosts
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: lan-hosts
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,39 @@
+# The hypervisor's web UI at https://px.lab.home.example.com. It runs outside the cluster, so the
+# Service is an ExternalName: a DNS name, not pods. The hypervisor has its own login (page 4 points
+# it at Authentik), so there's no login gate in front.
+apiVersion: v1
+kind: Service
+metadata:
+  name: hypervisor
+spec:
+  type: ExternalName
+  externalName: proxmox.home.example.com
+  ports:
+    - name: https
+      port: 8006
+---
+# Check the hypervisor's certificate against its name. If yours has the self-signed certificate
+# Proxmox makes at install, use `insecureSkipVerify: true` instead of serverName (the hop stays on
+# your network).
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: hypervisor
+spec:
+  serverName: proxmox.home.example.com
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: hypervisor
+spec:
+  entryPoints: [websecure]
+  routes:
+    - match: Host(`px.lab.home.example.com`)
+      kind: Rule
+      services:
+        - name: hypervisor
+          port: 8006
+          scheme: https
+          serversTransport: hypervisor
+  tls: {}

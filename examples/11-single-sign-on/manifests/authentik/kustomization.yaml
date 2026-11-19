@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: authentik
+resources:
+  - database.yaml
+  - secrets.yaml
+  - forward-auth.yaml
+# The blueprint keeps a fixed name: the chart mounts the ConfigMap by name, and the worker watches
+# the file, so a change is applied without a restart.
+configMapGenerator:
+  - name: authentik-blueprints
+    files:
+      - blueprint.yaml
+    options:
+      disableNameSuffixHash: true

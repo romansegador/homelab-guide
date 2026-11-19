@@ -1,0 +1,28 @@
+# What Authentik needs from you: its database (CloudNativePG, chapter 7), its secrets (from the
+# secrets manager, chapter 4), its access rules (the blueprint) and the login gate.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: authentik-config
+  namespace: argocd
+  annotations:
+    # The operator fills in defaults on the Cluster; compare on the server so ArgoCD doesn't report
+    # a difference that isn't there (same as chapter 7).
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
+spec:
+  project: default
+  source:
+    repoURL: <YOUR_CONFIG_REPO_URL>
+    targetRevision: main
+    path: manifests/authentik
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: authentik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
