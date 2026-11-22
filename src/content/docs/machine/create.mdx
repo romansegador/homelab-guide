@@ -338,4 +338,45 @@ vzdump <VMID> --storage <YOUR_BACKUP_STORAGE> --mode snapshot --compress zstd --
 
 It takes a minute or two. The backup then shows up under the VM's *Backup* tab.
 
+## Adding a second machine later
+
+One day you may want a second VM next to this one, for example a small utility machine. Don't add
+it to this folder. Everything here shares **one state**, so a slip while editing the second VM can
+plan a change, or a replacement, of the first one: the machine that holds your cluster. Give the
+new VM its own folder and its own state instead.
+
+<Steps>
+
+1. Copy the folder, then give the copy its own state key in its `backend.tf`. The bucket, the
+   passphrase and the four secrets stay the same.
+
+   ```hcl title="backend.tf"
+   key = "machine-2/terraform.tfstate"
+   ```
+
+2. Build the new VM from the image the first folder **already downloaded**, instead of downloading
+   it again. In the copy's `main.tf`, delete the `proxmox_download_file` resource and point the
+   disk at the existing file: `<datastore>:import/<file name>`, as Proxmox lists it under the
+   storage's *Import* content.
+
+   ```hcl title="main.tf"
+   import_from = "local:import/ubuntu-26.04-server-cloudimg-amd64.qcow2"
+   ```
+
+   Two states can't both own one file: the second download fails because the file already exists,
+   and destroying either machine would delete the image the other was built from.
+
+3. In the copy's `terraform.tfvars`, change at least `hostname`, `vm_id` and `ipv4_cidr`. If the
+   new machine needs no data disk, remove the second `disk` block from `main.tf` and the data disk
+   lines from `cloud-init/user-data.yaml.tftpl`.
+
+4. Run `tofu init -backend-config=backend.hcl` and `tofu plan` in the copy. Expect **only
+   additions**: the two cloud-init snippets and the VM. Anything to change or destroy means the
+   copy still points at the first machine's state or files: stop and check step 1.
+
+</Steps>
+
+Why separate folders and not a module: see the
+[FAQ](/start-here/faq/#how-do-i-add-a-second-machine-without-risking-the-first).
+
 Next: the cluster.
