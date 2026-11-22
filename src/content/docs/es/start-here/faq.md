@@ -121,6 +121,29 @@ que corre en la máquina después lo gestionan el clúster y GitOps. Ansible bri
 muchas máquinas una y otra vez a lo largo de su vida. Con una sola máquina, que prefieres reconstruir
 antes que parchear a mano, sería una segunda herramienta para poca ganancia.
 
+### ¿Por qué la definición de la VM ignora los cambios posteriores de cloud-init?
+cloud-init se ejecuta **una vez, en el primer arranque**. Después, sus ficheros describen cómo se
+*preparó* la máquina, no cómo se mantiene al día. Pero el proveedor de Proxmox ata la VM a esos
+ficheros, así que sin `lifecycle { ignore_changes = [initialization] }` un cambio de una línea, como
+añadir un segundo servidor DNS, hace que `tofu plan` quiera **destruir y volver a crear la VM
+entera**. Pasó mientras se escribía esta guía, y el plan se detectó antes de aplicarlo.
+
+- **Qué hace el ejemplo:** ignora esos cambios en la VM existente. Haces el cambio a mano en la
+  máquina en marcha y mantienes los ficheros al día, para que una reconstrucción dé el mismo resultado.
+- **Alternativas consideradas:**
+  - **Dejar que la reconstruya.** Vale para una máquina que tratas como desechable, con todo
+    restaurable. Aquí la máquina tiene el clúster y sus datos, así que reconstruirla es una
+    recuperación planificada, no un efecto secundario de cambiar el DNS.
+  - **Gestión de configuración** (Ansible y similares) para cambiar máquinas en marcha. Demasiado
+    para una sola máquina (consulta la pregunta anterior).
+- **Cuando sí quieras reconstruirla**, pídelo de forma explícita: `tofu apply -replace=proxmox_virtual_environment_vm.machine`.
+
+El mismo `main.tf` fija el **tiempo de apagado** (`startup { down_delay = 180 }`). Sin él, Proxmox
+puede forzar el apagado de la VM mientras todavía se está deteniendo, por ejemplo al reiniciar el host
+por actualizaciones, y una base de datos dentro arranca después como si se hubiera ido la luz. Un
+ajuste cambiado a mano en la interfaz de Proxmox también va en el código: si no, el siguiente
+`apply` lo deshace sin avisar.
+
 ## Capítulo 2 · El clúster
 
 ### ¿Por qué k3s?

@@ -178,6 +178,15 @@ Cualquier equipo con el repositorio, los cuatro secretos y acceso de red a Proxm
 [preguntas frecuentes](/es/start-here/faq/#dónde-está-el-estado-de-opentofu-y-por-qué-remoto-y-cifrado).
 </Aside>
 
+<Aside type="caution" title="Cambiar la máquina más adelante">
+Los ficheros de cloud-init solo importan en el **primer arranque**, así que la definición de la VM
+ignora los cambios posteriores en ellos (`lifecycle` en `main.tf`). Editar `dns_servers` o la clave
+SSH en `terraform.tfvars` solo cambia los ficheros, para la próxima reconstrucción. Haz el mismo
+cambio a mano en la máquina en marcha. **Nunca apliques un plan que diga que la VM `must be
+replaced`** salvo que de verdad quieras reconstruirla: eso borra la máquina y todo lo que tiene. Por
+qué: consulta las [preguntas frecuentes](/es/start-here/faq/#por-qué-la-definición-de-la-vm-ignora-los-cambios-posteriores-de-cloud-init).
+</Aside>
+
 </TabItem>
 <TabItem label="Interfaz web de Proxmox">
 
@@ -209,7 +218,11 @@ Cualquier equipo con el repositorio, los cuatro secretos y acceso de red a Proxm
    - *Add → Serial Port*, puerto 0 (las imágenes cloud lo esperan).
    - Selecciona `scsi0` y luego *Disk Action → Resize*. Añade lo necesario para llegar a **40 GiB** (la imagen empieza en unos 3,5 GiB).
 
-5. **Ajusta el orden de arranque.** En *Options → Boot Order*, activa `scsi0` y ponlo el primero.
+5. **Ajusta cómo arranca y se detiene.** En *Options*:
+   - *Boot Order*: activa `scsi0` y ponlo el primero.
+   - *Start at boot*: **Yes**, para que vuelva a arrancar cuando se reinicie el host.
+   - *Start/Shutdown order → Shutdown timeout*: **180**, para que al apagar el host tenga tiempo de
+     detenerse limpiamente en vez de forzar su apagado.
 
 6. **Rellena Cloud-Init** (pestaña *Cloud-Init*):
    - User: `ops` (no `admin`: Ubuntu 26.04 ya tiene un grupo con ese nombre). Deja la contraseña vacía.

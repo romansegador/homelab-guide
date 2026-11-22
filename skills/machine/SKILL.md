@@ -85,6 +85,13 @@ user-data.
   then rejects the key. The example defaults to `ops`.
 - Proxmox's own IP fields make cloud-init rename the NIC to `eth0`, which fails on 26.04 (`[busy]`),
   and the VM falls back to DHCP. The example passes its own netplan network-config (match `en*`).
+- **A plan that says the VM `must be replaced` / `-/+` destroys the machine.** Stop and show it to
+  the user; never apply it unless they explicitly want a rebuild. The example ignores later
+  cloud-init changes (`lifecycle { ignore_changes = [initialization] }`) because the provider
+  otherwise rebuilds the VM over a one-line `dns_servers` edit. Change the running machine by hand
+  and keep the cloud-init files in step.
+- Settings changed by hand on Proxmox (for example the shutdown timeout, `startup down_delay`) go
+  into `main.tf` too, or the next `apply` silently undoes them.
 - Diagnose a VM you can't log into from the Proxmox host (root, the user runs it):
   `qm guest exec <vmid> -- cloud-init status --long`.
 
