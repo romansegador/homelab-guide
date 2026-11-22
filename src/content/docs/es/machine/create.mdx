@@ -352,4 +352,45 @@ vzdump <VMID> --storage <YOUR_BACKUP_STORAGE> --mode snapshot --compress zstd --
 
 Tarda uno o dos minutos. Después la copia aparece en la pestaña *Backup* de la VM.
 
+## Añadir una segunda máquina más adelante
+
+Algún día querrás una segunda VM junto a esta, por ejemplo una pequeña máquina de utilidades. No la
+añadas a esta carpeta. Todo lo de aquí comparte **un solo estado**, así que un despiste al editar la
+segunda VM puede planificar un cambio, o una sustitución, de la primera: la máquina que tiene tu
+clúster. Dale a la nueva VM su propia carpeta y su propio estado.
+
+<Steps>
+
+1. Copia la carpeta y dale a la copia su propia clave de estado en su `backend.tf`. El bucket, la
+   frase de contraseña y los cuatro secretos son los mismos.
+
+   ```hcl title="backend.tf"
+   key = "machine-2/terraform.tfstate"
+   ```
+
+2. Crea la nueva VM a partir de la imagen que la primera carpeta **ya descargó**, en vez de
+   descargarla otra vez. En el `main.tf` de la copia, borra el recurso `proxmox_download_file` y
+   apunta el disco al fichero existente: `<datastore>:import/<nombre del fichero>`, tal como Proxmox
+   lo muestra en el contenido *Import* del almacenamiento.
+
+   ```hcl title="main.tf"
+   import_from = "local:import/ubuntu-26.04-server-cloudimg-amd64.qcow2"
+   ```
+
+   Dos estados no pueden ser dueños del mismo fichero: la segunda descarga falla porque el fichero
+   ya existe, y destruir cualquiera de las dos máquinas borraría la imagen con la que se creó la otra.
+
+3. En el `terraform.tfvars` de la copia, cambia al menos `hostname`, `vm_id` e `ipv4_cidr`. Si la
+   nueva máquina no necesita disco de datos, quita el segundo bloque `disk` de `main.tf` y las líneas
+   del disco de datos de `cloud-init/user-data.yaml.tftpl`.
+
+4. Ejecuta `tofu init -backend-config=backend.hcl` y `tofu plan` en la copia. Espera **solo
+   altas**: los dos snippets de cloud-init y la VM. Si hay algo que cambiar o destruir, la copia
+   todavía apunta al estado o a los ficheros de la primera máquina: para y revisa el paso 1.
+
+</Steps>
+
+Por qué carpetas separadas y no un módulo: consulta las
+[preguntas frecuentes](/es/start-here/faq/#cómo-añado-una-segunda-máquina-sin-arriesgar-la-primera).
+
 Siguiente: el clúster.

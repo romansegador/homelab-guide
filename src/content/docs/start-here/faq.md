@@ -132,6 +132,25 @@ Proxmox can force the VM off while it's still stopping, for example during a hos
 updates, and a database inside it then restarts as if the power had been cut. A setting changed by
 hand in the Proxmox UI belongs in the code too: otherwise the next `apply` quietly undoes it.
 
+### How do I add a second machine without risking the first?
+Give it **its own folder and its own state** (same bucket, a different `key`), and let it use the
+image the first folder already downloaded (steps in
+[Adding a second machine later](/machine/create/#adding-a-second-machine-later)).
+
+- **Why:** the first machine holds the cluster. With its own state, nothing you plan for the second
+  VM can touch it. And the image file can have only one owner: a second `proxmox_download_file` for
+  the same file fails because it already exists, and if each state owned a copy, destroying one
+  machine would delete what the other was built from.
+- **Alternatives considered:**
+  - **A module with `for_each`, both machines in one state.** Less copied code, and the right tool
+    once you have several similar machines. But moving the existing VM into a module needs `moved`
+    blocks, and a mistake there plans a *replacement* of the cluster machine.
+  - **A second resource block in the same folder.** Same shared-state risk, plus duplicated code.
+  - **Each folder downloads its own copy** under a different file name. Works, but leaves two
+    copies of the same image to keep in step at every update.
+- **When to pick differently:** with three or more similar machines, a module pays off. Plan the
+  refactor so that `tofu plan` shows no change for the machines that already exist.
+
 ## Chapter 2 · The cluster
 
 ### Why k3s?

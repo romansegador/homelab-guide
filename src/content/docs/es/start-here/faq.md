@@ -144,6 +144,26 @@ por actualizaciones, y una base de datos dentro arranca después como si se hubi
 ajuste cambiado a mano en la interfaz de Proxmox también va en el código: si no, el siguiente
 `apply` lo deshace sin avisar.
 
+### ¿Cómo añado una segunda máquina sin arriesgar la primera?
+Dale **su propia carpeta y su propio estado** (mismo bucket, otra `key`), y deja que use la imagen
+que la primera carpeta ya descargó (pasos en
+[Añadir una segunda máquina más adelante](/es/machine/create/#añadir-una-segunda-máquina-más-adelante)).
+
+- **Por qué:** la primera máquina tiene el clúster. Con su propio estado, nada de lo que planifiques
+  para la segunda VM puede tocarla. Y el fichero de la imagen solo puede tener un dueño: un segundo
+  `proxmox_download_file` del mismo fichero falla porque ya existe, y si cada estado fuera dueño de
+  una copia, destruir una máquina borraría aquello con lo que se creó la otra.
+- **Alternativas consideradas:**
+  - **Un módulo con `for_each`, las dos máquinas en un estado.** Menos código copiado, y la
+    herramienta adecuada cuando tienes varias máquinas parecidas. Pero mover la VM existente a un
+    módulo necesita bloques `moved`, y un error ahí planifica una *sustitución* de la máquina del clúster.
+  - **Un segundo bloque de recurso en la misma carpeta.** El mismo riesgo del estado compartido, y
+    código duplicado.
+  - **Que cada carpeta descargue su propia copia** con otro nombre de fichero. Funciona, pero deja
+    dos copias de la misma imagen que mantener al día en cada actualización.
+- **Cuándo elegir otra cosa:** con tres o más máquinas parecidas, un módulo compensa. Planifica la
+  refactorización para que `tofu plan` no muestre cambios en las máquinas que ya existen.
+
 ## Capítulo 2 · El clúster
 
 ### ¿Por qué k3s?
