@@ -71,6 +71,12 @@ variable "data_disk_gb" {
   default = 100
 }
 
+variable "shutdown_timeout_s" {
+  description = "Seconds Proxmox waits for the VM to shut down cleanly before stopping it"
+  type        = number
+  default     = 180
+}
+
 # Ubuntu Server 26.04 LTS cloud image, pinned to a dated build so a plan never changes under you.
 # To move to a newer build: pick a release-YYYYMMDD folder from
 # https://cloud-images.ubuntu.com/releases/resolute/ and copy the image's line from its SHA256SUMS.

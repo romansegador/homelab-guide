@@ -167,6 +167,15 @@ machine with the repository, the four secrets and network access to Proxmox can 
 Why it's done this way: see the [FAQ](/start-here/faq/#where-is-the-opentofu-state-and-why-remote-and-encrypted).
 </Aside>
 
+<Aside type="caution" title="Changing the machine later">
+The cloud-init files only matter on the **first boot**, so the VM definition ignores later changes
+to them (`lifecycle` in `main.tf`). Editing `dns_servers` or the SSH key in `terraform.tfvars`
+then changes only the files, for the next rebuild. Make the same change by hand on the running
+machine. **Never apply a plan that says the VM `must be replaced`** unless you really mean to
+rebuild it: that wipes the machine and everything on it. Why: see the
+[FAQ](/start-here/faq/#why-does-the-vm-definition-ignore-later-cloud-init-changes).
+</Aside>
+
 </TabItem>
 <TabItem label="Proxmox web UI">
 
@@ -198,7 +207,11 @@ Why it's done this way: see the [FAQ](/start-here/faq/#where-is-the-opentofu-sta
    - *Add → Serial Port*, port 0 (cloud images expect one).
    - Select `scsi0`, then *Disk Action → Resize*. Add enough to reach **40 GiB** (the image starts at about 3.5 GiB).
 
-5. **Set the boot order.** In *Options → Boot Order*, enable `scsi0` and move it first.
+5. **Set how it starts and stops.** In *Options*:
+   - *Boot Order*: enable `scsi0` and move it first.
+   - *Start at boot*: **Yes**, so it comes back after the host restarts.
+   - *Start/Shutdown order → Shutdown timeout*: **180**, so a host shutdown gives it time to
+     stop cleanly instead of forcing it off.
 
 6. **Fill in Cloud-Init** (*Cloud-Init* tab):
    - User: `ops` (not `admin`: Ubuntu 26.04 already has a group with that name). Leave the password empty.

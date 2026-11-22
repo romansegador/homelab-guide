@@ -110,6 +110,28 @@ afterwards is managed by the cluster and GitOps. Ansible shines when you configu
 repeatedly over their lifetime. With one machine that you'd rather rebuild than patch by hand, it
 would be a second tool for little gain.
 
+### Why does the VM definition ignore later cloud-init changes?
+cloud-init runs **once, on the first boot**. After that, its files describe how the machine *was*
+set up, not how it's kept up to date. But the Proxmox provider ties the VM to those files, so
+without `lifecycle { ignore_changes = [initialization] }` a one-line edit, like adding a second DNS
+server, makes `tofu plan` want to **destroy and recreate the whole VM**. That happened while this
+guide was being written, and the plan was caught before it was applied.
+
+- **What the example does:** it ignores those changes on the existing VM. You make the change by
+  hand on the running machine and keep the files in step, so a rebuild gets the same result.
+- **Alternatives considered:**
+  - **Let it rebuild.** Fine for a machine you treat as disposable, with everything restorable. Here
+    the machine holds the cluster and its data, so a rebuild is a planned recovery, not a side
+    effect of a DNS edit.
+  - **Configuration management** (Ansible and similar) to change running machines. Overkill for one
+    machine (see the question above).
+- **When you do want a rebuild**, ask for it explicitly: `tofu apply -replace=proxmox_virtual_environment_vm.machine`.
+
+The same `main.tf` sets the **shutdown timeout** (`startup { down_delay = 180 }`). Without it,
+Proxmox can force the VM off while it's still stopping, for example during a host reboot for
+updates, and a database inside it then restarts as if the power had been cut. A setting changed by
+hand in the Proxmox UI belongs in the code too: otherwise the next `apply` quietly undoes it.
+
 ## Chapter 2 · The cluster
 
 ### Why k3s?

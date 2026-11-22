@@ -103,6 +103,19 @@ resource "proxmox_virtual_environment_vm" "machine" {
   # Cloud images expect a serial console.
   serial_device {}
 
+  # Give the guest time to shut down cleanly when the host shuts down or reboots (the cluster stops
+  # its workloads first). Otherwise Proxmox can force it off halfway, like pulling the plug.
+  startup {
+    down_delay = var.shutdown_timeout_s
+  }
+
+  # cloud-init only runs on the VM's first boot. Without this, any later change to the cloud-init
+  # files (dns_servers, the SSH key, …) makes OpenTofu destroy and rebuild the whole VM. Change a
+  # running VM by hand (its netplan, its users) and keep these files in step for the next rebuild.
+  lifecycle {
+    ignore_changes = [initialization]
+  }
+
   # Both cloud-init files are ours. Proxmox's own IP fields aren't used: on Ubuntu 26.04 they
   # make cloud-init rename the network card, which fails (see network-config.yaml.tftpl).
   initialization {
